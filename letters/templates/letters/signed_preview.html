@@ -1,0 +1,120 @@
+{% extends 'letters/base.html' %}
+{% block content %}
+<div class="max-w-[98vw] mx-auto mt-4">
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-3 bg-[#E1EEE6] text-[#3F7A62] rounded-lg text-xs font-semibold">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <form method="post" action="{% url 'letters:send_signed_emails' batch.id %}">
+    {% csrf_token %}
+    <div class="flex items-center justify-between mb-4 bg-white p-4 rounded-xl border border-[#E1DACB] shadow-sm">
+      <div>
+        <h1 class="text-xl font-bold text-gray-800">Signed Document Dispatch Review</h1>
+        <p class="text-xs text-gray-500">Verify matched signed PDFs and student email addresses before sending.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="{% url 'letters:upload_signed' batch.id %}" class="bg-white border border-[#E1DACB] text-gray-700 text-xs px-3 py-2 rounded-lg font-semibold hover:bg-gray-50">Upload More Signed Files</a>
+        <button type="submit" onclick="return confirm('Are you sure you want to send emails to all selected students?');" class="bg-[#3F7A62] text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-[#32624e] shadow-sm">
+          Confirm & Send Email Batch
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-white border border-[#E1DACB] rounded-xl overflow-hidden shadow-sm">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
+          <tr>
+            <th class="p-3 w-10 text-center"><input type="checkbox" id="select-all" onclick="document.querySelectorAll('.rec-checkbox').forEach(c => c.checked = this.checked)" checked></th>
+            <th class="p-3">Student Info</th>
+            <th class="p-3">Draft (DOCX)</th>
+            <th class="p-3">Signed Paper (PDF)</th>
+            <th class="p-3">Recipient Email</th>
+            <th class="p-3">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#E1DACB]">
+          {% for item in summary %}
+          <!-- Main Record Row -->
+          <tr class="hover:bg-[#FBF9F4]/50">
+            <td class="p-3 text-center">
+                <input type="checkbox" name="selected_records" value="{{ item.record.id }}" class="rec-checkbox" {% if item.has_signed %}checked{% else %}disabled{% endif %}>
+            </td>
+            <td class="p-3 font-medium text-gray-800">
+              <div>{{ item.record.display_name }}</div>
+              <div class="text-[10px] text-gray-400 font-mono">{{ item.record.student_id }}</div>
+            </td>
+            <td class="p-3">
+              {% if item.doc and item.doc.file %}
+                <a href="{{ item.doc.file.url }}" target="_blank" class="text-blue-600 hover:underline">Draft .docx</a>
+              {% else %}
+                <span class="text-gray-400">—</span>
+              {% endif %}
+            </td>
+            <td class="p-3">
+              {% if item.has_signed %}
+                <div class="flex items-center gap-2">
+                  <a href="{{ item.doc.signed_file.url }}" target="_blank" class="text-[#3F7A62] font-semibold hover:underline">
+                    ✓ Signed PDF
+                  </a>
+              
+                </div>
+              {% else %}
+                <span class="text-red-500 font-medium">Missing Signed PDF</span>
+              {% endif %}
+            </td>
+            <td class="p-3">
+              <input type="email" name="email_{{ item.record.id }}" value="{{ item.email }}" class="border border-[#E1DACB] rounded px-2 py-1 text-xs w-64 focus:ring-1 focus:ring-[#3F7A62]" placeholder="student@university.edu" required>
+            </td>
+            <td class="p-3">
+              {% if item.doc.email_sent_at %}
+                <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-semibold">Sent {{ item.doc.email_sent_at|date:"M d, H:i" }}</span>
+              {% elif item.has_signed %}
+                <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-semibold">Ready to Send</span>
+              {% else %}
+                <span class="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-[10px] font-semibold">Pending Upload</span>
+              {% endif %}
+            </td>
+          </tr>
+
+          <!-- Collapsible Mini Preview Row -->
+          <tr id="preview-{{ item.record.id }}" class="hidden bg-[#FBF9F4]">
+            <td colspan="6" class="p-4 border-t border-[#E1DACB]">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold text-gray-700">📄 Signed PDF Document Preview — {{ item.record.display_name }}</span>
+                <button type="button" 
+                        onclick="togglePreview('preview-{{ item.record.id }}', '')" 
+                        class="text-gray-400 hover:text-gray-600 text-sm font-bold">
+                  ✕ Close Preview
+                </button>
+              </div>
+              <div class="w-full h-80 bg-white border border-[#E1DACB] rounded-lg overflow-hidden shadow-inner">
+                <iframe id="iframe-{{ item.record.id }}" src="" class="w-full h-full border-0"></iframe>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+</div>
+
+<script>
+function togglePreview(rowId, fileUrl) {
+  const row = document.getElementById(rowId);
+  const recordId = rowId.replace('preview-', '');
+  const iframe = document.getElementById('iframe-' + recordId);
+
+  if (row.classList.contains('hidden')) {
+    row.classList.remove('hidden');
+    if (fileUrl && iframe.src !== fileUrl) {
+      iframe.src = fileUrl;
+    }
+  } else {
+    row.classList.add('hidden');
+  }
+}
+</script>
+{% endblock %}

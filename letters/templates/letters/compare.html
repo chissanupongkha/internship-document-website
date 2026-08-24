@@ -1,0 +1,75 @@
+{% extends 'letters/base.html' %}
+{% block title %}Compare — {{ record.display_name }}{% endblock %}
+{% block content %}
+
+<a href="javascript:history.back()" class="text-xs text-gold hover:underline">← Back</a>
+<h1 class="text-xl font-semibold mt-2 mb-1">{{ record.display_name }}</h1>
+<p class="text-sm text-gray-500 mb-4 font-mono">{{ record.student_id }} · {{ document.file_name }}</p>
+
+<div class="flex gap-3 mb-5">
+  <span class="bg-[#E1EEE6] text-[#3F7A62] text-xs font-semibold px-3 py-1 rounded-full">✓ {{ match_count }} fields match</span>
+  {% if issue_count %}
+    <span class="bg-[#F6E7D2] text-[#B4772A] text-xs font-semibold px-3 py-1 rounded-full">⚠ {{ issue_count }} need a look</span>
+  {% endif %}
+</div>
+
+<div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-hidden">
+  <div class="grid grid-cols-[1fr_2px_1fr]">
+    <!-- LEFT: Excel data -->
+    <div class="p-5">
+      <h4 class="text-xs uppercase tracking-wide text-gray-500 font-bold mb-3">Excel Data</h4>
+      {% for c in comparison %}
+        <div class="field-block py-3 border-b border-dashed border-[#E1DACB] last:border-0 rounded transition-colors duration-150"
+             data-row="{{ c.row_key }}" onmouseenter="highlightRow('{{ c.row_key }}')" onmouseleave="clearHighlight()">
+          <div class="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-0.5">{{ c.label }}</div>
+          <div class="text-sm">{% if c.excel %}{{ c.excel }}{% else %}<span class="text-[#AD4B3D] italic">Missing</span>{% endif %}</div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <!-- torn-paper divider -->
+    <div class="bg-[repeating-linear-gradient(to_bottom,#C9BFA8_0,#C9BFA8_6px,transparent_6px,transparent_13px)] w-[2px] mx-auto"></div>
+
+    <!-- RIGHT: Generated document -->
+    <div class="p-5">
+      <h4 class="text-xs uppercase tracking-wide text-gray-500 font-bold mb-3">Generated Document</h4>
+      {% for c in comparison %}
+        <div class="field-block py-3 border-b border-dashed border-[#E1DACB] last:border-0 rounded transition-colors duration-150 flex items-start justify-between gap-3"
+             data-row="{{ c.row_key }}" onmouseenter="highlightRow('{{ c.row_key }}')" onmouseleave="clearHighlight()">
+          <div class="flex-1">
+            <div class="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-0.5">{{ c.label }}</div>
+            <div class="text-sm">{% if c.doc %}{{ c.doc }}{% else %}<span class="text-[#AD4B3D] italic">Missing</span>{% endif %}</div>
+          </div>
+          <div class="flex-shrink-0 mt-0.5">
+            {% if c.status == 'match' %}
+              <span class="bg-[#E1EEE6] text-[#3F7A62] text-[11px] font-semibold px-2 py-0.5 rounded-full">✓ Match</span>
+            {% elif c.status == 'partial' %}
+              <span class="bg-[#F6E7D2] text-[#B4772A] text-[11px] font-semibold px-2 py-0.5 rounded-full">⚠ Partial</span>
+            {% elif c.status == 'missing' %}
+              <span class="bg-[#F5E0DB] text-[#AD4B3D] text-[11px] font-semibold px-2 py-0.5 rounded-full">✕ Missing</span>
+            {% else %}
+              <span class="bg-[#F5E0DB] text-[#AD4B3D] text-[11px] font-semibold px-2 py-0.5 rounded-full">✕ Mismatch</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<p class="text-xs text-gray-400 mt-3">Hover a field on either side to highlight its match on the other.</p>
+
+<script>
+function highlightRow(key) {
+  document.querySelectorAll('[data-row="' + key + '"]').forEach(function(el) {
+    el.classList.add('bg-[#F1E6CC]');
+  });
+}
+function clearHighlight() {
+  document.querySelectorAll('.field-block').forEach(function(el) {
+    el.classList.remove('bg-[#F1E6CC]');
+  });
+}
+</script>
+
+{% endblock %}

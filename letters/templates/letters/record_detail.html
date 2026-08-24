@@ -1,0 +1,156 @@
+{% extends 'letters/base.html' %}
+{% block title %}{{ record.display_name }} — Details & Preview{% endblock %}
+{% block content %}
+
+<script src="https://unpkg.com/jszip/dist/jszip.min.js"></script>
+<script src="https://unpkg.com/docx-preview@0.1.15/dist/docx-preview.min.js"></script>
+
+<!-- Full Width Container Wrapper -->
+<div class="max-w-[98vw] mx-auto -mt-2">
+
+  <!-- Header Row -->
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <h1 class="text-2xl font-bold mb-0.5 text-gray-800">{{ record.display_name }}</h1>
+      <p class="text-xs text-gray-500 font-mono">{{ record.student_id }}</p>
+    </div>
+    <button onclick="window.close()" class="text-xs text-black hover:underline font-semibold bg-white border border-[#E1DACB] px-3 py-1.5 rounded-lg shadow-sm">← Close window</button>
+  </div>
+
+  <!-- Expanded 2-Panel Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+    <!-- Left Panel: Editable Form -->
+    <form method="post" class="lg:col-span-5 bg-white border border-[#E1DACB] rounded-xl shadow-sm h-[88vh] flex flex-col overflow-hidden">
+      {% csrf_token %}
+      <div class="px-5 py-3.5 bg-[#FBF9F4] font-semibold text-xs uppercase tracking-wide text-gray-600 border-b border-[#E1DACB] flex justify-between items-center shrink-0">
+        <span class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-[#3F7A62]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          Edit Record Data
+        </span>
+        <button type="submit" class="bg-[#3F7A62] text-white px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#32624e] transition shadow-sm">
+          Save & Re-generate
+        </button>
+      </div>
+
+      <!-- Scrollable Form Inputs -->
+      <div class="overflow-y-auto flex-1 p-3 space-y-4">
+        
+        <!-- Section 1: Key Document Fields -->
+        <div>
+          <div class="text-[10px] font-bold uppercase tracking-wider text-[#3F7A62] mb-2 px-1 flex items-center gap-1">
+            <span>★ Core Document Fields</span>
+          </div>
+          <div class="space-y-2.5">
+            {% for label, value in primary_fields %}
+            <div class="px-3 py-2 bg-[#FBF9F4] border border-[#E1DACB] rounded-lg flex flex-col gap-1 focus-within:border-[#3F7A62] focus-within:ring-1 focus-within:ring-[#3F7A62]">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-bold uppercase tracking-wider text-gray-600">{{ label }}</label>
+               
+              </div>
+              <input type="text" name="{{ label }}" value="{{ value }}" 
+                class="w-full text-sm border-0 p-0 focus:ring-0 bg-transparent text-gray-800 font-medium">
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Section 2: Secondary / Additional Data -->
+        {% if secondary_fields %}
+        <div class="pt-2 border-t border-[#E1DACB]">
+          <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2 px-1">
+            Additional Data
+          </div>
+          <div class="space-y-2.5">
+            {% for label, value in secondary_fields %}
+            <div class="px-3 py-2 bg-gray-50 border border-[#E1DACB] rounded-lg flex flex-col gap-1 focus-within:border-gray-400">
+              <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{{ label }}</label>
+              <input type="text" name="{{ label }}" value="{{ value }}" 
+                class="w-full text-sm border-0 p-0 focus:ring-0 bg-transparent text-gray-700">
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+      </div>
+    </form>
+
+    <!-- Right Panel: DOCX Live Preview -->
+    <div class="lg:col-span-7 bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 h-[88vh] flex flex-col overflow-hidden">
+      
+      <!-- Panel Header Bar -->
+      <div class="text-xs font-semibold uppercase tracking-wide text-gray-500 pb-3 border-b border-[#E1DACB] flex justify-between items-center shrink-0">
+        <span>Document Live Preview</span>
+        
+        {% if document and document.file %}
+        <div class="flex items-center gap-3">
+          <!-- Zoom Controls -->
+          <div class="flex items-center bg-[#FBF9F4] border border-[#E1DACB] rounded-lg p-0.5 text-xs font-mono shadow-sm">
+            <button type="button" onclick="zoomOut()" class="px-2.5 py-1 hover:bg-white rounded font-bold text-gray-700">-</button>
+            <span id="zoom-level" class="px-2 text-gray-700 font-semibold min-w-[48px] text-center">100%</span>
+            <button type="button" onclick="zoomIn()" class="px-2.5 py-1 hover:bg-white rounded font-bold text-gray-700">+</button>
+            <button type="button" onclick="resetZoom()" class="px-2.5 py-1 border-l border-[#E1DACB] ml-1 text-gray-400 hover:text-gray-700">↺</button>
+          </div>
+
+          <!-- Download .docx -->
+          <a href="{{ document.file.url }}" download class="text-black text-xs font-semibold hover:underline flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Download .docx
+          </a>
+
+          <!-- Download .pdf -->
+          <a href="{% url 'letters:download_record_pdf' record.id %}" class="bg-[#3F7A62] text-white text-xs font-semibold px-2.5 py-1 rounded-md hover:bg-[#32624e] transition flex items-center gap-1 shadow-sm">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Download .pdf
+          </a>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Live Render Container -->
+      <div class="flex-1 mt-3 bg-[#FBF9F4] rounded-lg border border-[#E1DACB] overflow-auto p-4 relative" id="docx-container">
+        {% if not document or not document.file %}
+          <div class="h-full flex flex-col items-center justify-center text-gray-400 text-center">
+            <p class="text-sm font-medium text-gray-500">No generated document found</p>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+{% if document and document.file %}
+<script>
+  let currentZoom = 1.0;
+
+  fetch("{{ document.file.url }}")
+    .then(r => r.arrayBuffer())
+    .then(buffer => {
+      docx.renderAsync(buffer, document.getElementById("docx-container"), null, {
+        className: "docx",
+        inWrapper: true,
+        ignoreWidth: false,
+        ignoreHeight: false
+      });
+    });
+
+  function updateZoom() {
+    const wrapper = document.querySelector("#docx-container .docx-wrapper") || document.querySelector("#docx-container > div");
+    if (wrapper) {
+      wrapper.style.transform = `scale(${currentZoom})`;
+      wrapper.style.transformOrigin = "top center";
+      wrapper.style.transition = "transform 0.15s ease-in-out";
+    }
+    document.getElementById("zoom-level").innerText = `${Math.round(currentZoom * 100)}%`;
+  }
+
+  function zoomIn() { if (currentZoom < 2.0) { currentZoom += 0.1; updateZoom(); } }
+  function zoomOut() { if (currentZoom > 0.5) { currentZoom -= 0.1; updateZoom(); } }
+  function resetZoom() { currentZoom = 1.0; updateZoom(); }
+</script>
+{% endif %}
+
+{% endblock %}

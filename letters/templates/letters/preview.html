@@ -1,0 +1,150 @@
+{% extends 'letters/base.html' %}
+{% block title %}Preview — Internship Letter Generator{% endblock %}
+{% block content %}
+
+<!-- Full-width fluid layout container -->
+<div class="w-full max-w-none px-1 sm:px-4">
+  <a href="{% url 'letters:index' %}" class="text-xs text-black hover:underline">← Upload a different file</a>
+  <h1 class="text-xl font-semibold mt-2 mb-1">Preview data — {{ records|length }} rows</h1>
+  <p class="text-sm text-gray-500 mb-4">Check company, contractor, and position details before generating. Rows without a matching template are unchecked and disabled.</p>
+
+  <div class="flex gap-2 flex-wrap mb-4">
+    {% for k, v in counts.items %}
+      <span class="bg-gray-200 text-gray-700 text-xs px-3 py-1 rounded-full">{{ k }}: {{ v }}</span>
+    {% endfor %}
+  </div>
+
+  <form id="generateForm" action="{% url 'letters:generate' batch.id %}" method="post">
+    {% csrf_token %}
+    <input type="hidden" name="format" id="downloadFormat" value="docx">
+
+    <!-- Expanded Full-Bleed Table Wrapper -->
+    <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-x-auto w-full">
+      <table class="w-full text-xs sm:text-sm text-left border-collapse">
+        <thead>
+          <!-- Changed px-3 to px-1.5 (6px) for tighter column gaps -->
+          <tr class="bg-[#FBF9F4] text-[11px] uppercase tracking-wider text-gray-500 border-b border-[#E1DACB]">
+            <th class="py-2.5 px-1.5 w-8 text-center"></th>
+            <th class="py-2.5 px-1.5">Student</th>
+            <th class="py-2.5 px-1.5">Company</th>
+            <th class="py-2.5 px-1.5">Contractor</th>
+            <th class="py-2.5 px-1.5">Position</th>
+            <th class="py-2.5 px-1.5">Period</th>
+            <th class="py-2.5 px-1.5">Letter Type</th>
+            <th class="py-2.5 px-1.5">Status</th>
+            <th class="py-2.5 px-1.5 w-16 text-right"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#E1DACB]">
+          {% for r in records %}
+          <tr class="hover:bg-[#FBF9F4] align-top transition-colors">
+            <!-- Changed px-3 to px-1.5 across all cells -->
+            <td class="py-2.5 px-1.5 text-center">
+              <input type="checkbox" name="record_id" value="{{ r.id }}" class="rounded text-[#3F7A62] focus:ring-[#3F7A62]" {% if r.supported %}checked{% else %}disabled{% endif %}>
+            </td>
+            <td class="py-2.5 px-1.5">
+              <div class="font-medium text-gray-900">{{ r.display_name|default:"—" }}</div>
+              <div class="font-mono text-xs text-gray-400">{{ r.student_id }}</div>
+            </td>
+            <td class="py-2.5 px-1.5">
+              {% if r.company %}<span class="text-gray-800 break-words">{{ r.company }}</span>{% else %}<span class="text-[#AD4B3D] italic">Missing</span>{% endif %}
+            </td>
+            <td class="py-2.5 px-1.5">
+              {% if r.contractor %}
+                <div class="text-gray-800 break-words">{{ r.contractor }}</div>
+                <div class="text-xs text-gray-400 break-words">{{ r.contractor_position }}</div>
+              {% else %}<span class="text-[#AD4B3D] italic">Missing</span>{% endif %}
+            </td>
+            <td class="py-2.5 px-1.5 text-gray-800 break-words">{{ r.internship_position|default:"—" }}</td>
+            <td class="py-2.5 px-1.5 text-gray-800 whitespace-nowrap">{{ r.period|default:"—" }}</td>
+            <td class="py-2.5 px-1.5 text-gray-800 whitespace-nowrap">{{ r.letter_type }}</td>
+            <td class="py-2.5 px-1.5 whitespace-nowrap">
+              {% if r.missing %}
+                <span class="bg-[#F6E7D2] text-[#B4772A] text-xs font-semibold px-2 py-0.5 rounded-full" title="Missing: {{ r.missing|join:', ' }}">⚠ {{ r.missing|length }} missing</span>
+              {% elif r.supported %}
+                <span class="bg-[#E1EEE6] text-[#3F7A62] text-xs font-semibold px-2 py-0.5 rounded-full">Ready</span>
+              {% else %}
+                <span class="bg-[#F5E0DB] text-[#AD4B3D] text-xs font-semibold px-2 py-0.5 rounded-full">No template</span>
+              {% endif %}
+            </td>
+            <td class="py-2.5 px-1.5 whitespace-nowrap text-right">
+              <a href="{% url 'letters:record_detail' r.id %}" target="_blank" class="text-black text-xs font-semibold hover:underline">View all →</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Trigger Modal Button -->
+    <div class="mt-5 flex items-center justify-between">
+      <button type="button" onclick="openDownloadModal()"
+        class="bg-[#3F7A62] text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#32624e] transition shadow-sm flex items-center gap-2 cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4M9 9h6"/>
+        </svg>
+        Download selected (.ZIP)
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal Dialog for Format Selection -->
+<div id="downloadModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-[#E1DACB] text-center transform transition-all">
+    <div class="w-12 h-12 bg-[#E1EEE6] text-[#3F7A62] rounded-full flex items-center justify-center mx-auto mb-3">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+    </div>
+    
+    <h3 class="text-lg font-bold text-gray-800 mb-1">Select File Format</h3>
+    <p class="text-xs text-gray-500 mb-6">Choose how you want to download the selected internship letters ZIP file.</p>
+
+    <div class="flex flex-col gap-2.5">
+      <button type="button" onclick="submitFormWithFormat('docx')" 
+        class="w-full bg-[#3F7A62] text-white font-semibold py-2.5 px-4 rounded-xl hover:bg-[#32624e] transition flex items-center justify-center gap-2 text-sm shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        Download as Word (.DOCX)
+      </button>
+
+      <button type="button" onclick="submitFormWithFormat('pdf')" 
+        class="w-full bg-[#B4772A] text-white font-semibold py-2.5 px-4 rounded-xl hover:bg-[#966221] transition flex items-center justify-center gap-2 text-sm shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+        </svg>
+        Download as PDF (.PDF)
+      </button>
+
+      <button type="button" onclick="closeDownloadModal()" 
+        class="w-full bg-gray-100 text-gray-600 font-semibold py-2.5 px-4 rounded-xl hover:bg-gray-200 transition text-sm mt-1">
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openDownloadModal() {
+  const checked = document.querySelectorAll('input[name="record_id"]:checked');
+  if (checked.length === 0) {
+    alert('Please select at least one record to download.');
+    return;
+  }
+  document.getElementById('downloadModal').classList.remove('hidden');
+}
+
+function closeDownloadModal() {
+  document.getElementById('downloadModal').classList.add('hidden');
+}
+
+function submitFormWithFormat(format) {
+  document.getElementById('downloadFormat').value = format;
+  document.getElementById('generateForm').submit();
+  closeDownloadModal();
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'letters/base.html' %}
+{% block content %}
+<div class="max-w-2xl mx-auto mt-8 bg-white p-6 rounded-xl border border-[#E1DACB] shadow-sm">
+  <h2 class="text-xl font-bold mb-2">Upload Signed Internship Letters</h2>
+  <p class="text-sm text-gray-500 mb-6">Upload individual signed PDF files or a ZIP file containing signed PDFs. Files will automatically match to records by Student ID or Reference Number.</p>
+
+  <form method="post" enctype="multipart/form-data" class="space-y-4">
+    {% csrf_token %}
+    <div class="border-2 border-dashed border-[#E1DACB] bg-[#FBF9F4] rounded-xl p-8 text-center">
+      <input type="file" name="signed_files" multiple accept=".pdf,.zip" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#3F7A62] file:text-white hover:file:bg-[#32624e]">
+    </div>
+    <div class="flex justify-between items-center pt-2">
+      <a href="{% url 'letters:preview' batch.id %}" class="text-xs text-gray-500 hover:underline">← Back to batch preview</a>
+      <button type="submit" class="bg-[#3F7A62] text-white px-5 py-2 rounded-lg text-xs font-semibold hover:bg-[#32624e] shadow-sm">Match & Process Files</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

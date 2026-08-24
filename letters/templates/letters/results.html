@@ -1,0 +1,37 @@
+{% extends 'letters/base.html' %}
+{% block title %}Results — Internship Letter Generator{% endblock %}
+{% block content %}
+
+<h1 class="text-xl font-semibold mb-1">Generation complete</h1>
+
+<div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-7 mt-4">
+  <div class="text-sm border-b border-[#E1DACB] pb-4 mb-4 text-[#3F7A62] font-medium">
+    {{ generated|length }} documents generated successfully
+  </div>
+
+  {% if generated %}
+    <div class="divide-y divide-[#E1DACB] mb-5">
+      {% for doc in generated %}
+        <div class="py-2.5 flex items-center justify-between text-sm">
+          <div>
+            <div class="font-medium">{{ doc.record.display_name }}</div>
+            <div class="text-xs text-gray-400 font-mono">{{ doc.file_name }}</div>
+          </div>
+          <a href="{% url 'letters:compare' doc.id %}" class="text-gold text-xs font-semibold hover:underline">Compare with Excel →</a>
+        </div>
+      {% endfor %}
+    </div>
+   
+  {% endif %}
+
+  {% if skipped %}
+    <div class="text-sm text-[#AD4B3D] font-medium mt-6 mb-2">{{ skipped|length }} skipped (no template):</div>
+    {% for doc in skipped %}
+      <div class="text-xs text-gray-500 py-1">{{ doc.record.student_id }} — {{ doc.skip_reason }}</div>
+    {% endfor %}
+  {% endif %}
+</div>
+
+<a href="{% url 'letters:index' %}" class="text-xs text-gold hover:underline block mt-4">← Start over</a>
+
+{% endblock %}

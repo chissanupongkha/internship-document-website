@@ -1,0 +1,90 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Internship Letter Generator{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: '#006C6C',
+          gold: '#FFFFC9',
+          teal: { DEFAULT: '#ffffff', dark: '#ffffff', light: '#ffffff' },
+        },
+      },
+    },
+  }
+</script>
+{% block extra_head %}{% endblock %}
+</head>
+<body class="bg-[#F6F3EC] min-h-screen text-[#1B2A4A]">
+
+<!-- Header Navigation Bar -->
+<header class="bg-ink border-b-4 border-gold">
+  <div class="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between">
+    <!-- Brand Title -->
+    <div>
+      <div class="text-white font-semibold text-lg leading-tight">Internship Letter Generator</div>
+      <div class="text-gray-300 text-xs tracking-wide uppercase">Faculty of ICT · Mahidol University</div>
+    </div>
+
+    <!-- Top Right Auth Navigation -->
+    <div class="flex items-center space-x-4 text-xs font-medium">
+      {% if user.is_authenticated %}
+        <a href="{% url 'letters:profile' %}" class="text-gray-200 hover:text-gold transition-colors flex items-center gap-1.5">
+          <span>👤 Staff:</span>
+          <span class="text-white font-semibold">{{ user.username }}</span>
+        </a>
+        <a href="{% url 'letters:logout' %}" class="px-3 py-1.5 bg-red-600/20 text-red-200 border border-red-400/30 hover:bg-red-600 hover:text-white rounded-lg transition-all">
+          Logout
+        </a>
+      {% else %}
+        <a href="{% url 'letters:login' %}" class="px-4 py-1.5 bg-gold text-[#006C6C] font-semibold rounded-lg hover:bg-white transition-all shadow-sm">
+          Log In
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Main Navigation Links -->
+  <nav class="max-w-6xl mx-auto px-6">
+    <div class="flex gap-6 text-sm">
+      <!-- 1. Upload Excel -->
+      <a href="{% url 'letters:index' %}" class="py-2.5 border-b-2 {% if request.path == '/' %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
+        Upload Excel
+      </a>
+
+      <!-- 2. Upload Signed Papers -->
+      <a href="{% url 'letters:signed_papers_main' %}" class="py-2.5 border-b-2 {% if 'signed' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
+        Upload Signed Papers
+      </a>
+    </div>
+  </nav>
+</header>
+
+<!-- Alert Messages -->
+{% if messages %}
+<div class="max-w-6xl mx-auto px-6 pt-4 space-y-2">
+  {% for message in messages %}
+  <div class="rounded-md px-4 py-3 text-sm border
+    {% if message.tags == 'success' %}bg-green-50 text-green-800 border-green-200
+    {% elif message.tags == 'error' %}bg-red-50 text-red-800 border-red-200
+    {% elif message.tags == 'warning' %}bg-amber-50 text-amber-800 border-amber-200
+    {% else %}bg-white text-[#1B2A4A] border-gray-200{% endif %}">
+    {{ message }}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Main Content Area -->
+<main class="max-w-6xl mx-auto px-6 py-6">
+  {% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

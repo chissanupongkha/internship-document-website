@@ -1,26 +1,30 @@
 {% extends 'letters/base.html' %}
 {% block content %}
-<div class="max-w-[98vw] mx-auto mt-4">
-  {% if messages %}
-    {% for message in messages %}
-      <div class="mb-4 p-3 bg-[#E1EEE6] text-[#3F7A62] rounded-lg text-xs font-semibold">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
+<div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+  <form method="get" action="{% url 'letters:signed_preview' %}" class="flex items-center gap-3">
+    <label for="batch_id" class="text-sm font-semibold text-gray-700">Filter Batch:</label>
+    <select name="batch_id" id="batch_id" onchange="this.form.submit()" 
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-blue-500">
+      <option value="all" {% if selected_batch_id == 'all' %}selected{% endif %}>
+        All Batches (Deduplicated)
+      </option>
+      {% for b in batches %}
+        <option value="{{ b.id }}" {% if selected_batch_id == b.id|stringformat:"s" %}selected{% endif %}>
+          Batch #{{ b.id }} — {{ b.file_name }} ({{ b.uploaded_at|date:"M d, Y" }})
+        </option>
+      {% endfor %}
+    </select>
+  </form>
 
-  <form method="post" action="{% url 'letters:send_signed_emails' batch.id %}">
+  <!-- Upload Signed Papers Action Form -->
+  <form action="{% url 'letters:upload_signed' %}?batch_id={{ selected_batch_id }}" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
     {% csrf_token %}
-    <div class="flex items-center justify-between mb-4 bg-white p-4 rounded-xl border border-[#E1DACB] shadow-sm">
-      <div>
-        <h1 class="text-xl font-bold text-gray-800">Signed Document Dispatch Review</h1>
-        <p class="text-xs text-gray-500">Verify matched signed PDFs and student email addresses before sending.</p>
-      </div>
-      <div class="flex items-center gap-3">
-        <a href="{% url 'letters:upload_signed' batch.id %}" class="bg-white border border-[#E1DACB] text-gray-700 text-xs px-3 py-2 rounded-lg font-semibold hover:bg-gray-50">Upload More Signed Files</a>
-        <button type="submit" onclick="return confirm('Are you sure you want to send emails to all selected students?');" class="bg-[#3F7A62] text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-[#32624e] shadow-sm">
-          Confirm & Send Email Batch
-        </button>
-      </div>
-    </div>
+    <input type="file" name="signed_files" multiple accept=".pdf,.zip" required class="text-xs">
+    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+      Upload Signed PDFs
+    </button>
+  </form>
+</div>
 
     <div class="bg-white border border-[#E1DACB] rounded-xl overflow-hidden shadow-sm">
       <table class="w-full text-left text-xs">

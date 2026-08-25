@@ -16,6 +16,7 @@ from django.core.mail import EmailMessage
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.urls import reverse
 
 from .decorators import staff_required
 from .docgen import (
@@ -24,7 +25,7 @@ from .docgen import (
     generate_for_row,
     generate_pdf_for_row,
 )
-from .models import GeneratedDocument, GenerationBatch, StudentRecord, UploadedBatch
+from .models import AuditLog, GeneratedDocument, GenerationBatch, StudentRecord, UploadedBatch
 
 IMPORTANT_FIELDS = ['student_id', 'display_name', 'company', 'contractor', 'internship_position', 'period']
 
@@ -44,6 +45,25 @@ PRIORITY_FIELDS = [
 EXCLUDE_KEYS = {'id', 'batch', 'row_index', 'supported', 'missing', 'batch_id'}
 
 
+def log_activity(request, action, details=""):
+    """Helper function to record staff actions in AuditLog."""
+    if not request.user or not request.user.is_authenticated:
+        return
+
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+
+    AuditLog.objects.create(
+        user=request.user,
+        action=action,
+        details=details,
+        ip_address=ip
+    )
+
+
 # ==========================================
 # AUTHENTICATION & PROFILE VIEWS
 # ==========================================
@@ -61,6 +81,9 @@ def login_view(request):
                 messages.error(request, "This account does not have staff permissions.")
                 return render(request, 'letters/login.html', {'form': form})
             login(request, user)
+
+            request.session.set_expiry(1800)  # 30-minute inactivity timeout
+
             next_url = request.GET.get('next')
             return redirect(next_url if next_url else 'letters:index')
         else:
@@ -218,15 +241,25 @@ def upload(request):
     f = request.FILES['datafile']
     df = _load_table(f)
 
-    batch = UploadedBatch.objects.create(file_name=f.name)
+    batch = UploadedBatch.objects.create(file_name=f.name, uploaded_by=request.user)
     records = []
+    skipped_duplicates = 0
+
     for i, row in enumerate(df.to_dict(orient='records')):
+        s_id = str(row.get('Student ID (e.g. 6587999)', '')).strip()
+        l_type = str(row.get('Letter Type', '')).strip()
+
+        # Check if record already exists globally across any batch
+        if s_id and StudentRecord.objects.filter(student_id=s_id, letter_type=l_type).exists():
+            skipped_duplicates += 1
+            continue
+
         name = f"{row.get('Prefix', '')}{row.get('First Name', '')} {row.get('Last Name', '')}".strip()
         records.append(StudentRecord(
             batch=batch,
             row_index=i,
-            letter_type=row.get('Letter Type', ''),
-            student_id=row.get('Student ID (e.g. 6587999)', ''),
+            letter_type=l_type,
+            student_id=s_id,
             display_name=name,
             company=row.get('Company/Organization Name for Internship', ''),
             contractor=row.get('Letter Addressed To (Company Contact Person)', ''),
@@ -235,9 +268,22 @@ def upload(request):
             period=row.get('Internship Period', ''),
             data=row,
         ))
-    StudentRecord.objects.bulk_create(records)
-    return redirect('letters:preview', batch_id=batch.id)
 
+    if records:
+        StudentRecord.objects.bulk_create(records)
+
+    log_activity(
+        request, 
+        'UPLOAD_EXCEL', 
+        f"Batch #{batch.id} uploaded: {f.name} ({len(records)} added, {skipped_duplicates} duplicates skipped)"
+    )
+
+    if skipped_duplicates > 0:
+        messages.info(request, f"Uploaded {len(records)} new record(s). Skipped {skipped_duplicates} duplicate record(s).")
+    else:
+        messages.success(request, f"Successfully uploaded {len(records)} record(s).")
+
+    return redirect('letters:preview', batch_id=batch.id)
 
 @staff_required
 def preview(request, batch_id):
@@ -287,6 +333,13 @@ def record_detail(request, record_id):
             document.file_name = fname_or_reason
             document.file.save(fname_or_reason, ContentFile(buf.getvalue()), save=True)
 
+        # Log action
+        log_activity(
+            request, 
+            'EDIT_RECORD', 
+            f"Updated student record #{record.id} ({record.display_name})"
+        )
+
         return redirect('letters:record_detail', record_id=record.id)
 
     if not document:
@@ -324,7 +377,11 @@ def record_detail(request, record_id):
         'secondary_fields': secondary_fields,
         'document': document,
     })
-
+@staff_required
+def audit_logs_view(request):
+    """Staff UI page to view system audit history."""
+    logs = AuditLog.objects.select_related('user').all()[:100]
+    return render(request, 'letters/audit_logs.html', {'logs': logs})
 
 @staff_required
 def generate(request, batch_id):
@@ -413,6 +470,13 @@ def generate(request, batch_id):
                     gen_batch.documents.add(doc)
                     zf.writestr(fname_or_reason, buf.getvalue())
 
+    # Log action
+    log_activity(
+        request, 
+        'GENERATE_DOCS', 
+        f"Generated {records.count()} {file_format.upper()} files for Batch #{batch.id}"
+    )
+
     zip_buf.seek(0)
     return FileResponse(
         zip_buf,
@@ -472,20 +536,31 @@ def download_record_pdf(request, record_id):
         content_type='application/pdf'
     )
 
-
 @staff_required
-def upload_signed(request, batch_id):
-    """Uploads signed PDF(s) or ZIP file and links them to students."""
-    batch = get_object_or_404(UploadedBatch, id=batch_id)
+def upload_signed(request, batch_id=None):
+    """Uploads signed PDF(s) or ZIP file and matches against filtered/all students."""
+    selected_batch_id = request.GET.get('batch_id') or (str(batch_id) if batch_id else 'all')
 
     if request.method == 'POST':
         uploaded_files = request.FILES.getlist('signed_files') or request.FILES.getlist('files')
         matched_count = 0
-        records = batch.records.all()
+
+        if selected_batch_id != 'all':
+            batch = get_object_or_404(UploadedBatch, id=selected_batch_id)
+            records = batch.records.all()
+        else:
+            # Match against latest deduplicated records
+            all_records = StudentRecord.objects.order_by('-id')
+            seen = set()
+            records = []
+            for r in all_records:
+                key = (r.student_id.strip(), r.letter_type.strip())
+                if key not in seen:
+                    seen.add(key)
+                    records.append(r)
 
         for uploaded_file in uploaded_files:
             fname = uploaded_file.name.lower()
-
             if fname.endswith('.zip'):
                 with zipfile.ZipFile(uploaded_file, 'r') as z:
                     for inner_name in z.namelist():
@@ -497,27 +572,43 @@ def upload_signed(request, batch_id):
                 if _match_and_save_pdf(records, uploaded_file.name, uploaded_file):
                     matched_count += 1
 
+        log_activity(
+            request, 
+            'UPLOAD_SIGNED', 
+            f"Uploaded signed documents ({selected_batch_id}). Matched {matched_count} file(s)."
+        )
+
         if matched_count > 0:
             messages.success(request, f"Successfully matched {matched_count} signed document(s).")
         else:
             messages.warning(request, "No matching students found. Ensure PDF filenames include Student IDs or Names.")
 
-        return redirect('letters:signed_preview', batch_id=batch.id)
-
-    return render(request, 'letters/upload_signed.html', {'batch': batch})
-
+    return redirect(f"{reverse('letters:signed_preview')}?batch_id={selected_batch_id}")
 
 @staff_required
-def signed_preview(request, batch_id):
-    """Displays batch records with signed PDFs and recipient student emails."""
-    batch = get_object_or_404(UploadedBatch, id=batch_id)
-    records = batch.records.all()
+def signed_preview(request, batch_id=None):
+    """Displays student records with batch filtering and deduplication."""
+    batches = UploadedBatch.objects.order_by('-uploaded_at')
+    selected_batch_id = request.GET.get('batch_id') or (str(batch_id) if batch_id else 'all')
+
+    if selected_batch_id != 'all':
+        selected_batch = get_object_or_404(UploadedBatch, id=selected_batch_id)
+        records = StudentRecord.objects.filter(batch=selected_batch)
+    else:
+        # Get all records, deduplicated by student_id and letter_type (keeping latest upload)
+        all_records = StudentRecord.objects.select_related('batch').order_by('-id')
+        seen = set()
+        records = []
+        for r in all_records:
+            key = (r.student_id.strip(), r.letter_type.strip())
+            if key not in seen:
+                seen.add(key)
+                records.append(r)
 
     record_summary = []
     for r in records:
-        doc = GeneratedDocument.objects.filter(record=r, status=GeneratedDocument.STATUS_GENERATED).last()
+        doc = GeneratedDocument.objects.filter(record=r).last()
         student_email = get_student_email(r)
-
         record_summary.append({
             'record': r,
             'doc': doc,
@@ -526,10 +617,10 @@ def signed_preview(request, batch_id):
         })
 
     return render(request, 'letters/signed_preview.html', {
-        'batch': batch,
+        'batches': batches,
+        'selected_batch_id': str(selected_batch_id),
         'summary': record_summary,
     })
-
 
 @staff_required
 def send_signed_emails(request, batch_id):
@@ -589,19 +680,21 @@ def send_signed_emails(request, batch_id):
             doc.save()
             sent_count += 1
 
+    # Log action
+    log_activity(
+        request, 
+        'SEND_EMAIL', 
+        f"Sent {sent_count} signed letter emails for Batch #{batch.id}"
+    )
+
     messages.success(request, f"Successfully processed {sent_count} email(s) with PDF and DOCX attachments.")
     return redirect('letters:signed_preview', batch_id=batch.id)
 
 
 @staff_required
 def signed_papers_main(request):
-    """Navbar destination: redirects to the latest batch's signed preview."""
-    latest_batch = UploadedBatch.objects.order_by('-id').first()
-    if latest_batch:
-        return redirect('letters:signed_preview', batch_id=latest_batch.id)
-
-    messages.warning(request, "No uploaded batches found. Please upload a batch first.")
-    return redirect('letters:index')
+    """Navbar destination: opens signed preview page with all batches by default."""
+    return redirect('letters:signed_preview')
 
 
 @staff_required

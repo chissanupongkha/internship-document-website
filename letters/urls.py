@@ -22,6 +22,11 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
     path('profile/', views.profile_view, name='profile'),
+    path('audit-logs/', views.audit_logs_view, name='audit_logs'),
+    path('signed/', views.signed_preview, name='signed_preview'),
+    path('signed/<int:batch_id>/', views.signed_preview, name='signed_preview_batch'),
+    path('signed/upload/', views.upload_signed, name='upload_signed'),
+    path('signed/upload/<int:batch_id>/', views.upload_signed, name='upload_signed_batch'),
     
     # Add this route:
     path('document/<int:document_id>/signed-pdf/', views.view_signed_pdf, name='view_signed_pdf'),

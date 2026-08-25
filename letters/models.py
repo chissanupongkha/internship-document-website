@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 from django.db import models
-
+from django.contrib.auth.models import User
 
 class UploadedBatch(models.Model):
     """One uploaded Excel/CSV file."""
     file_name = models.CharField(max_length=255)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)  # <-- ADD THIS FIELD
 
     def __str__(self):
-        return f"{self.file_name} ({self.uploaded_at:%Y-%m-%d %H:%M})"
-
+        uploader = self.uploaded_by.username if self.uploaded_by else "System"
+        return f"Batch #{self.id} - {self.file_name} (Uploaded by {uploader})"
 
 class StudentRecord(models.Model):
     """One row from the uploaded file. Raw columns are kept as JSON so the
@@ -51,9 +52,11 @@ class GeneratedDocument(models.Model):
     signed_file = models.FileField(upload_to='signed_docs/', null=True, blank=True)
     email_sent_at = models.DateTimeField(null=True, blank=True)
 
-    def __str__(self):
-        return f"{self.file_name or self.skip_reason} ({self.status})"
-
+def __str__(self):
+    student_name = self.record.display_name if self.record else "Unknown Student"
+    identifier = self.file_name or self.skip_reason or f"Ref: {self.ref_no}"
+    status_label = self.get_status_display() if hasattr(self, 'get_status_display') else self.status
+    return f"{student_name} | {identifier} ({status_label})"
 
 class GenerationBatch(models.Model):
     """Groups the documents produced by one 'Generate' click, so the
@@ -61,3 +64,19 @@ class GenerationBatch(models.Model):
     batch = models.ForeignKey(UploadedBatch, related_name='generation_runs', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     documents = models.ManyToManyField(GeneratedDocument, related_name='generation_batches')
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('UPLOAD_EXCEL', 'Uploaded Excel Batch'),
+        ('GENERATE_DOCS', 'Generated Draft Letters'),
+        ('UPLOAD_SIGNED', 'Uploaded Signed PDFs'),
+        ('SEND_EMAIL', 'Dispatched Emails'),
+        ('EDIT_RECORD', 'Edited Student Record'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    details = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)

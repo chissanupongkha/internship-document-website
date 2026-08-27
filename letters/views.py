@@ -623,24 +623,25 @@ def signed_preview(request, batch_id=None):
     })
 
 @staff_required
-def send_signed_emails(request, batch_id):
-    """Dispatches signed PDFs and draft DOCX files to selected student emails."""
-    batch = get_object_or_404(UploadedBatch, id=batch_id)
-
+def send_signed_emails(request):
+    """Dispatches signed PDFs and draft DOCX files to selected student emails across filtered or all batches."""
     if request.method != 'POST':
-        return redirect('letters:signed_preview', batch_id=batch.id)
+        return redirect('letters:signed_preview')
 
     selected_ids = request.POST.getlist('selected_records')
-    records = batch.records.filter(id__in=selected_ids)
+    selected_batch = request.POST.get('batch_id', 'all')
+    
+    # Query records across all batches by ID
+    records = StudentRecord.objects.filter(id__in=selected_ids)
 
     if not records.exists():
         messages.warning(request, "No student records were selected. Please check at least one box.")
-        return redirect('letters:signed_preview', batch_id=batch.id)
+        return redirect(f"{reverse('letters:signed_preview')}?batch_id={selected_batch}")
 
     sent_count = 0
     for r in records:
         student_email = request.POST.get(f'email_{r.id}', '').strip() or get_student_email(r)
-        doc = GeneratedDocument.objects.filter(record=r, status=GeneratedDocument.STATUS_GENERATED).last()
+        doc = GeneratedDocument.objects.filter(record=r).last()
 
         if doc and doc.signed_file and student_email:
             subject = f"Signed Internship Letter & Draft - {r.display_name}"
@@ -657,6 +658,7 @@ def send_signed_emails(request, batch_id):
                 to=[student_email],
             )
 
+            # Attach Signed PDF
             doc.signed_file.open('rb')
             email.attach(
                 os.path.basename(doc.signed_file.name),
@@ -665,6 +667,7 @@ def send_signed_emails(request, batch_id):
             )
             doc.signed_file.close()
 
+            # Attach Draft DOCX if available
             if doc.file:
                 doc.file.open('rb')
                 email.attach(
@@ -680,16 +683,14 @@ def send_signed_emails(request, batch_id):
             doc.save()
             sent_count += 1
 
-    # Log action
     log_activity(
         request, 
         'SEND_EMAIL', 
-        f"Sent {sent_count} signed letter emails for Batch #{batch.id}"
+        f"Sent {sent_count} signed letter emails ({selected_batch})"
     )
 
     messages.success(request, f"Successfully processed {sent_count} email(s) with PDF and DOCX attachments.")
-    return redirect('letters:signed_preview', batch_id=batch.id)
-
+    return redirect(f"{reverse('letters:signed_preview')}?batch_id={selected_batch}")
 
 @staff_required
 def signed_papers_main(request):

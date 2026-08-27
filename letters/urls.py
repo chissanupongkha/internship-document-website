@@ -27,6 +27,7 @@ urlpatterns = [
     path('signed/<int:batch_id>/', views.signed_preview, name='signed_preview_batch'),
     path('signed/upload/', views.upload_signed, name='upload_signed'),
     path('signed/upload/<int:batch_id>/', views.upload_signed, name='upload_signed_batch'),
+    path('signed/send/', views.send_signed_emails, name='send_signed_emails'),
     
     # Add this route:
     path('document/<int:document_id>/signed-pdf/', views.view_signed_pdf, name='view_signed_pdf'),

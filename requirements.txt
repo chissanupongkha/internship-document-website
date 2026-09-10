@@ -8,3 +8,5 @@ pandas
 reportlab
 gunicorn
 gunicorn
+django-storages
+boto3

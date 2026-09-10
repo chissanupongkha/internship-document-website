@@ -27,11 +27,13 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from docx2pdf import convert
 from docxtpl import DocxTemplate
+from django.conf import settings
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-pdfmetrics.registerFont(TTFont("THSarabun", "THSarabunNew.ttf"))
+FONT_PATH = os.path.join(settings.BASE_DIR, 'letters', 'fonts', 'THSarabunNew.ttf')
 
+pdfmetrics.registerFont(TTFont("THSarabun", FONT_PATH))
 LOGO_PATH = os.path.join(os.path.dirname(__file__), 'static', 'letters', 'images', 'mu_logo.jpeg')
 
 FACULTY_TH = "คณะเทคโนโลยีสารสนเทศและการสื่อสาร"

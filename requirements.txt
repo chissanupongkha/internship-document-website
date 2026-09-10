@@ -7,7 +7,6 @@ aiosignal==1.2.0
 aiosqlite==0.18.0
 alabaster==0.7.12
 altair==5.0.1
-anaconda-anon-usage==0.4.3
 anaconda-auth==0.8.4
 anaconda-catalogs==0.2.0
 anaconda-cli-base==0.5.2

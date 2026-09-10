@@ -6,3 +6,4 @@ docxtpl
 dotenv
 pandas
 reportlab
+gunicorn

@@ -1,5 +1,4 @@
 absl-py==2.3.1
-aext-assistant==4.0.15
 aext-assistant-server==4.0.15
 aext-core==4.0.15
 aext-core-server==4.0.15

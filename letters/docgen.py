@@ -31,8 +31,8 @@ from django.conf import settings
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-FONT_PATH = os.path.join(settings.BASE_DIR, 'letters', 'fonts', 'THSarabunNew.ttf')
 
+FONT_PATH = os.path.join(settings.BASE_DIR, 'letters', 'static', 'fonts', 'THSarabunNew.ttf')
 pdfmetrics.registerFont(TTFont("THSarabun", FONT_PATH))
 LOGO_PATH = os.path.join(os.path.dirname(__file__), 'static', 'letters', 'images', 'mu_logo.jpeg')
 

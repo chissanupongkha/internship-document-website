@@ -10,3 +10,4 @@ gunicorn
 gunicorn
 django-storages
 boto3
+psycopg[binary]

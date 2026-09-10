@@ -1,11 +1,13 @@
 {% extends 'letters/base.html' %}
+{% block title %}Dispatch Signed Letters{% endblock %}
+
 {% block content %}
 <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
   <!-- Filter Batch Form -->
   <form method="get" action="{% url 'letters:signed_preview' %}" class="flex items-center gap-3">
     <label for="batch_id" class="text-sm font-semibold text-gray-700">Filter Batch:</label>
     <select name="batch_id" id="batch_id" onchange="this.form.submit()" 
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-blue-500">
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-[#3F7A62]">
       <option value="all" {% if selected_batch_id == 'all' %}selected{% endif %}>
         All Batches (Deduplicated)
       </option>
@@ -20,8 +22,8 @@
   <!-- Upload Signed Papers Action Form -->
   <form action="{% url 'letters:upload_signed' %}?batch_id={{ selected_batch_id }}" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
     {% csrf_token %}
-    <input type="file" name="signed_files" multiple accept=".pdf,.zip" required class="text-xs">
-    <button type="submit" class="px-4 py-2 bg-[#006C6C] text-white rounded-lg text-sm font-medium hover:bg-[#004D4D]">
+    <input type="file" name="signed_files" multiple accept=".pdf,.zip" required class="text-xs text-gray-600 border border-gray-200 rounded-lg p-1 bg-white">
+    <button type="submit" class="px-4 py-2 bg-[#006C6C] text-white rounded-lg text-sm font-medium hover:bg-[#004D4D] transition shadow-sm">
       Upload Signed PDFs
     </button>
   </form>
@@ -36,7 +38,7 @@
   <div class="flex items-center justify-between mb-4 bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-4 shadow-sm">
     <div>
       <h2 class="font-bold text-gray-800 text-sm">Send Internship Letters</h2>
-      <p class="text-xs text-gray-500">Dispatch signed PDF documents and draft copies directly to student inbox.</p>
+      <p class="text-xs text-gray-500">Dispatch signed PDF documents and draft copies directly to student inboxes.</p>
     </div>
     <button type="submit" class="px-5 py-2.5 bg-[#3F7A62] text-white rounded-lg text-sm font-semibold hover:bg-[#2E5B49] transition shadow-sm flex items-center gap-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
@@ -49,9 +51,13 @@
       <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
         <tr>
           <th class="p-3 w-10 text-center">
-            <input type="checkbox" id="select-all" onclick="document.querySelectorAll('.rec-checkbox:not([disabled])').forEach(c => c.checked = this.checked)" checked>
+            <input type="checkbox" id="select-all" onclick="toggleSelectAll(this)" checked>
           </th>
           <th class="p-3">Student Info</th>
+          <th class="p-3">Letter Type</th>
+          <th class="p-3">Course ID</th>
+          <th class="p-3">Semester</th>
+          <th class="p-3 text-center">Times</th>
           <th class="p-3">Draft (DOCX)</th>
           <th class="p-3">Signed Paper (PDF)</th>
           <th class="p-3">Recipient Email</th>
@@ -63,56 +69,130 @@
         <!-- Main Record Row -->
         <tr class="hover:bg-[#FBF9F4]/50">
           <td class="p-3 text-center">
-              <input type="checkbox" name="selected_records" value="{{ item.record.id }}" class="rec-checkbox" {% if item.has_signed %}checked{% else %}disabled{% endif %}>
+            <input
+              type="checkbox"
+              name="selected_records"
+              value="{{ item.record.id }}"
+              class="rec-checkbox"
+              {% if item.has_signed %}checked{% else %}disabled{% endif %}
+            >
           </td>
+        
+          <!-- Student Info -->
           <td class="p-3 font-medium text-gray-800">
             <div>{{ item.record.display_name }}</div>
-            <div class="text-[10px] text-gray-400 font-mono">{{ item.record.student_id }}</div>
+            <div class="text-[10px] text-gray-400 font-mono">
+              {{ item.record.student_id }}
+            </div>
+            <div class="font-mono text-[10px] text-gray-500 mt-0.5">
+              Year: {{ item.record.year|default:"—" }}
+            </div>
           </td>
+        
+          <!-- Letter Type -->
           <td class="p-3">
-            {% if item.doc and item.doc.file %}
-              <a href="{{ item.doc.file.url }}" target="_blank" class="text-blue-600 hover:underline">Draft .docx</a>
-            {% else %}
-              <span class="text-gray-400">—</span>
-            {% endif %}
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold
+              {% if item.record.letter_type == 'confirm' %}
+                bg-[#3F7A62]/10 text-[#3F7A62]
+              {% elif item.record.letter_type == 'request' %}
+                bg-blue-100 text-blue-700
+              {% elif item.record.letter_type == 'extension' %}
+                bg-orange-100 text-orange-700
+              {% else %}
+                bg-gray-100 text-gray-600
+              {% endif %}">
+              {{ item.record.letter_type|default:"—" }}
+            </span>
           </td>
+        
+          <!-- Course -->
+          <td class="p-3 text-gray-600">
+            {{ item.record.course_id|default:"—" }}
+          </td>
+        
+          <!-- Semester -->
+          <td class="p-3 text-gray-600">
+            {{ item.record.semester|default:"—" }}
+          </td>
+        
+          <!-- Times -->
+          <td class="p-3 text-center text-gray-600">
+            {{ item.record.times }}
+          </td>
+        
+          <!-- Draft DOCX -->
+          <td class="p-3">
+            <a href="{% url 'letters:preview_record_docx' item.record.id %}"
+               target="_blank"
+               class="text-blue-600 hover:underline inline-flex items-center gap-1 font-medium">
+              Draft .docx
+            </a>
+          </td>
+        
+          <!-- Signed PDF & Quick Preview Toggle -->
           <td class="p-3">
             {% if item.has_signed %}
               <div class="flex items-center gap-2">
-                <a href="{{ item.doc.signed_file.url }}" target="_blank" class="text-[#3F7A62] font-semibold hover:underline">
+                <a href="{{ item.doc.signed_file.url }}"
+                   target="_blank"
+                   class="text-[#3F7A62] font-semibold hover:underline">
                   ✓ Signed PDF
                 </a>
+                <button type="button" 
+                        onclick="togglePreview('preview-{{ item.record.id }}', '{% url 'letters:preview_record_pdf' item.record.id %}')"
+                        class="text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded border border-gray-300 font-medium">
+                  👁 Preview
+                </button>
               </div>
             {% else %}
-              <span class="text-red-500 font-medium">Missing Signed PDF</span>
+              <span class="text-red-500 font-medium text-[11px]">
+                Missing Signed PDF
+              </span>
             {% endif %}
           </td>
+        
+          <!-- Email -->
           <td class="p-3">
-            <input type="email" name="email_{{ item.record.id }}" value="{{ item.email }}" class="border border-[#E1DACB] rounded px-2 py-1 text-xs w-64 focus:ring-1 focus:ring-[#3F7A62]" placeholder="student@university.edu" required>
+            <input
+              type="email"
+              name="email_{{ item.record.id }}"
+              value="{{ item.email }}"
+              class="border border-[#E1DACB] rounded px-2 py-1 text-xs w-64 focus:ring-1 focus:ring-[#3F7A62]"
+              placeholder="student@university.edu"
+              required
+            >
           </td>
+        
+          <!-- Status -->
           <td class="p-3">
             {% if item.doc.email_sent_at %}
-              <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-semibold">Sent {{ item.doc.email_sent_at|date:"M d, H:i" }}</span>
+              <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-semibold">
+                Sent {{ item.doc.email_sent_at|date:"M d, H:i" }}
+              </span>
             {% elif item.has_signed %}
-              <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-semibold">Ready to Send</span>
+              <span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-semibold">
+                Ready to Send
+              </span>
             {% else %}
-              <span class="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-[10px] font-semibold">Pending Upload</span>
+              <span class="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-[10px] font-semibold">
+                Pending Upload
+              </span>
             {% endif %}
           </td>
         </tr>
 
-        <!-- Collapsible Mini Preview Row -->
+        <!-- Collapsible Mini Preview Row (Spans full 10 columns) -->
         <tr id="preview-{{ item.record.id }}" class="hidden bg-[#FBF9F4]">
-          <td colspan="6" class="p-4 border-t border-[#E1DACB]">
+          <td colspan="10" class="p-4 border-t border-[#E1DACB]">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-xs font-bold text-gray-700">📄 Signed PDF Document Preview — {{ item.record.display_name }}</span>
+              <span class="text-xs font-bold text-gray-700">📄 PDF Document Preview — {{ item.record.display_name }}</span>
               <button type="button" 
                       onclick="togglePreview('preview-{{ item.record.id }}', '')" 
-                      class="text-gray-400 hover:text-gray-600 text-sm font-bold">
+                      class="text-gray-400 hover:text-gray-600 text-xs font-bold bg-white border border-[#E1DACB] px-2 py-1 rounded">
                 ✕ Close Preview
               </button>
             </div>
-            <div class="w-full h-80 bg-white border border-[#E1DACB] rounded-lg overflow-hidden shadow-inner">
+            <div class="w-full h-96 bg-white border border-[#E1DACB] rounded-lg overflow-hidden shadow-inner">
               <iframe id="iframe-{{ item.record.id }}" src="" class="w-full h-full border-0"></iframe>
             </div>
           </td>
@@ -124,6 +204,12 @@
 </form>
 
 <script>
+function toggleSelectAll(master) {
+  document.querySelectorAll('.rec-checkbox:not([disabled])').forEach(cb => {
+    cb.checked = master.checked;
+  });
+}
+
 function togglePreview(rowId, fileUrl) {
   const row = document.getElementById(rowId);
   const recordId = rowId.replace('preview-', '');
@@ -136,6 +222,7 @@ function togglePreview(rowId, fileUrl) {
     }
   } else {
     row.classList.add('hidden');
+    iframe.src = ""; // Clear src to stop PDF rendering when hidden
   }
 }
 </script>

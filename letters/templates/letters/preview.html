@@ -18,57 +18,101 @@
     {% csrf_token %}
     <input type="hidden" name="format" id="downloadFormat" value="docx">
 
-    <!-- Expanded Full-Bleed Table Wrapper -->
+    <!-- Table Wrapper -->
     <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-x-auto w-full">
-      <table class="w-full text-xs sm:text-sm text-left border-collapse">
+      <table class="min-w-[1360px] text-sm text-left border-collapse">
         <thead>
-          <!-- Changed px-3 to px-1.5 (6px) for tighter column gaps -->
-          <tr class="bg-[#FBF9F4] text-[11px] uppercase tracking-wider text-gray-500 border-b border-[#E1DACB]">
-            <th class="py-2.5 px-1.5 w-8 text-center"></th>
-            <th class="py-2.5 px-1.5">Student</th>
-            <th class="py-2.5 px-1.5">Company</th>
-            <th class="py-2.5 px-1.5">Contractor</th>
-            <th class="py-2.5 px-1.5">Position</th>
-            <th class="py-2.5 px-1.5">Period</th>
-            <th class="py-2.5 px-1.5">Letter Type</th>
-            <th class="py-2.5 px-1.5">Status</th>
-            <th class="py-2.5 px-1.5 w-16 text-right"></th>
+          <tr class="bg-[#FBF9F4] text-xs uppercase tracking-wider text-gray-500 border-b border-[#E1DACB]">
+            <!-- Master Checkbox -->
+            <th class="py-3 px-3 text-center">
+              <input
+                type="checkbox"
+                id="selectAll"
+                onclick="toggleSelectAll(this)"
+                class="h-4 w-4 rounded border-gray-300 text-[#3F7A62] focus:ring-[#3F7A62]"
+                title="Select/Deselect All Supported Records"
+              >
+            </th>
+            <th class="py-3 px-3">Student</th>
+            <th class="py-3 px-3">Company</th>
+            <th class="py-3 px-3">Contractor</th>
+            <th class="py-3 px-3">Position</th>
+            <th class="py-3 px-3">Course</th>
+            <th class="py-3 px-3">Sem.</th>
+            <th class="py-3 px-3 text-center">times</th>
+            <th class="py-3 px-3">Period</th>
+            <th class="py-3 px-3">Type</th>
+            <th class="py-3 px-3">Status</th>
+            <th class="py-3 px-3 text-right"></th>
           </tr>
         </thead>
+    
         <tbody class="divide-y divide-[#E1DACB]">
           {% for r in records %}
-          <tr class="hover:bg-[#FBF9F4] align-top transition-colors">
-            <!-- Changed px-3 to px-1.5 across all cells -->
-            <td class="py-2.5 px-1.5 text-center">
-              <input type="checkbox" name="record_id" value="{{ r.id }}" class="rounded text-[#3F7A62] focus:ring-[#3F7A62]" {% if r.supported %}checked{% else %}disabled{% endif %}>
+          <tr class="hover:bg-[#FBF9F4] transition-colors align-top">
+            <td class="py-4 px-3 text-center">
+              <input
+                type="checkbox"
+                name="record_id"
+                value="{{ r.id }}"
+                class="record-checkbox h-4 w-4 rounded border-gray-300 text-[#3F7A62] focus:ring-[#3F7A62]"
+                {% if r.supported %}checked{% else %}disabled{% endif %}
+                onclick="updateMasterCheckbox()"
+              >
             </td>
-            <td class="py-2.5 px-1.5">
-              <div class="font-medium text-gray-900">{{ r.display_name|default:"—" }}</div>
-              <div class="font-mono text-xs text-gray-400">{{ r.student_id }}</div>
+    
+            <td class="py-4 px-3">
+              <div class="font-semibold text-gray-900" title="{{ r.display_name }}">
+                {{ r.display_name|default:"—" }}
+              </div>
+              <div class="font-mono text-xs text-gray-500 mt-1">{{ r.student_id }}</div>
+              <div class="font-mono text-xs text-gray-500 mt-1">year: {{ r.year|default:"—" }}</div>
             </td>
-            <td class="py-2.5 px-1.5">
-              {% if r.company %}<span class="text-gray-800 break-words">{{ r.company }}</span>{% else %}<span class="text-[#AD4B3D] italic">Missing</span>{% endif %}
-            </td>
-            <td class="py-2.5 px-1.5">
-              {% if r.contractor %}
-                <div class="text-gray-800 break-words">{{ r.contractor }}</div>
-                <div class="text-xs text-gray-400 break-words">{{ r.contractor_position }}</div>
-              {% else %}<span class="text-[#AD4B3D] italic">Missing</span>{% endif %}
-            </td>
-            <td class="py-2.5 px-1.5 text-gray-800 break-words">{{ r.internship_position|default:"—" }}</td>
-            <td class="py-2.5 px-1.5 text-gray-800 whitespace-nowrap">{{ r.period|default:"—" }}</td>
-            <td class="py-2.5 px-1.5 text-gray-800 whitespace-nowrap">{{ r.letter_type }}</td>
-            <td class="py-2.5 px-1.5 whitespace-nowrap">
-              {% if r.missing %}
-                <span class="bg-[#F6E7D2] text-[#B4772A] text-xs font-semibold px-2 py-0.5 rounded-full" title="Missing: {{ r.missing|join:', ' }}">⚠ {{ r.missing|length }} missing</span>
-              {% elif r.supported %}
-                <span class="bg-[#E1EEE6] text-[#3F7A62] text-xs font-semibold px-2 py-0.5 rounded-full">Ready</span>
+
+            <td class="py-4 px-3">
+              {% if r.company %}
+                <span class="text-gray-800 block" title="{{ r.company }}">{{ r.company }}</span>
               {% else %}
-                <span class="bg-[#F5E0DB] text-[#AD4B3D] text-xs font-semibold px-2 py-0.5 rounded-full">No template</span>
+                <span class="text-[#AD4B3D] italic">Missing</span>
               {% endif %}
             </td>
-            <td class="py-2.5 px-1.5 whitespace-nowrap text-right">
-              <a href="{% url 'letters:record_detail' r.id %}" target="_blank" class="text-black text-xs font-semibold hover:underline">View all →</a>
+    
+            <td class="py-4 px-3">
+              {% if r.contractor %}
+                <div class="text-gray-800" title="{{ r.contractor }}">{{ r.contractor }}</div>
+                <div class="text-xs text-gray-500 mt-1" title="{{ r.contractor_position }}">{{ r.contractor_position }}</div>
+              {% else %}
+                <span class="text-[#AD4B3D] italic">Missing</span>
+              {% endif %}
+            </td>
+    
+            <td class="py-4 px-3 text-gray-800" title="{{ r.internship_position }}">{{ r.internship_position|default:"—" }}</td>
+            <td class="py-4 px-3 text-gray-800" title="{{ r.course_id }}">{{ r.course_id|default:"—" }}</td>
+            <td class="py-4 px-3 text-gray-800 whitespace-nowrap">{{ r.semester|default:"—" }}</td>
+            <td class="py-4 px-3 text-center text-gray-800">{{ r.times }}</td>
+            <td class="py-4 px-3 text-gray-800" title="{{ r.period }}">{{ r.period|default:"—" }}</td>
+            <td class="py-4 px-3 whitespace-nowrap text-gray-800">{{ r.letter_type }}</td>
+    
+            <td class="py-4 px-3 whitespace-nowrap">
+              {% if r.missing %}
+                <span class="inline-flex items-center rounded-full bg-[#F6E7D2] text-[#B4772A] px-3 py-1 text-xs font-semibold" title="Missing: {{ r.missing|join:', ' }}">
+                  ⚠ {{ r.missing|length }} Missing
+                </span>
+              {% elif r.supported %}
+                <span class="inline-flex items-center rounded-full bg-[#E1EEE6] text-[#3F7A62] px-3 py-1 text-xs font-semibold">
+                  Ready
+                </span>
+              {% else %}
+                <span class="inline-flex items-center rounded-full bg-[#F5E0DB] text-[#AD4B3D] px-3 py-1 text-xs font-semibold">
+                  No Template
+                </span>
+              {% endif %}
+            </td>
+    
+            <td class="py-4 px-3 text-right">
+              <a href="{% url 'letters:record_detail' r.id %}" target="_blank" class="text-sm font-semibold text-black hover:underline">
+                View →
+              </a>
             </td>
           </tr>
           {% endfor %}
@@ -76,7 +120,6 @@
       </table>
     </div>
 
-    <!-- Trigger Modal Button -->
     <div class="mt-5 flex items-center justify-between">
       <button type="button" onclick="openDownloadModal()"
         class="bg-[#3F7A62] text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#32624e] transition shadow-sm flex items-center gap-2 cursor-pointer">
@@ -89,7 +132,7 @@
   </form>
 </div>
 
-<!-- Modal Dialog for Format Selection -->
+<!-- Format Selection Modal -->
 <div id="downloadModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
   <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-[#E1DACB] text-center transform transition-all">
     <div class="w-12 h-12 bg-[#E1EEE6] text-[#3F7A62] rounded-full flex items-center justify-center mx-auto mb-3">
@@ -99,7 +142,7 @@
     </div>
     
     <h3 class="text-lg font-bold text-gray-800 mb-1">Select File Format</h3>
-    <p class="text-xs text-gray-500 mb-6">Choose how you want to download the selected internship letters ZIP file.</p>
+    <p class="text-xs text-gray-500 mb-6">Choose file format for <span id="selectedCountText" class="font-bold text-gray-700">0</span> selected document(s).</p>
 
     <div class="flex flex-col gap-2.5">
       <button type="button" onclick="submitFormWithFormat('docx')" 
@@ -113,7 +156,7 @@
       <button type="button" onclick="submitFormWithFormat('pdf')" 
         class="w-full bg-[#B4772A] text-white font-semibold py-2.5 px-4 rounded-xl hover:bg-[#966221] transition flex items-center justify-center gap-2 text-sm shadow-sm">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 01-2 2v14a2 2 0 002 2z"/>
         </svg>
         Download as PDF (.PDF)
       </button>
@@ -127,12 +170,27 @@
 </div>
 
 <script>
+function toggleSelectAll(master) {
+  const checkboxes = document.querySelectorAll('.record-checkbox:not([disabled])');
+  checkboxes.forEach(cb => cb.checked = master.checked);
+}
+
+function updateMasterCheckbox() {
+  const master = document.getElementById('selectAll');
+  const enabled = document.querySelectorAll('.record-checkbox:not([disabled])');
+  const checked = document.querySelectorAll('.record-checkbox:not([disabled]):checked');
+  if (master) {
+    master.checked = (enabled.length > 0 && enabled.length === checked.length);
+  }
+}
+
 function openDownloadModal() {
   const checked = document.querySelectorAll('input[name="record_id"]:checked');
   if (checked.length === 0) {
     alert('Please select at least one record to download.');
     return;
   }
+  document.getElementById('selectedCountText').innerText = checked.length;
   document.getElementById('downloadModal').classList.remove('hidden');
 }
 
@@ -145,6 +203,9 @@ function submitFormWithFormat(format) {
   document.getElementById('generateForm').submit();
   closeDownloadModal();
 }
+
+// Initial check on load
+document.addEventListener('DOMContentLoaded', updateMasterCheckbox);
 </script>
 
 {% endblock %}

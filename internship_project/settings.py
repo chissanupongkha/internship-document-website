@@ -1,3 +1,10 @@
+import os
+import dj_database_url
+from dotenv import load_dotenv
+from urllib.parse import urlparse, parse_qsl
+
+
+load_dotenv()
 """
 Django settings for internship_project project.
 
@@ -20,14 +27,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-7-m!5ipx1u43=sebo_c)oev+a7nqbb1nefu&ci#^g4^$=w3-cx'
-
+#SECRET_KEY = 'django-insecure-7-m!5ipx1u43=sebo_c)oev+a7nqbb1nefu&ci#^g4^$=w3-cx'
+# WRONG: Tries to find an environment variable named 'l#)qhc24i=@3=7dlebq...'
+SECRET_KEY = os.environ.get('l#)qhc24i=@3=7dlebq@81^c6=3ka6ua^j#4&eq^w=#7l%1v6#', 'dev-only-insecure-key-change-me')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'testserver']
 
+# internship_project/settings.py
 
+# Set session cookie duration to 2 hours (7200 seconds)
+SESSION_COOKIE_AGE = 7200  
+
+# Optional: Refreshes the 2-hour timer on every request so active users stay logged in
+SESSION_SAVE_EVERY_REQUEST = True  
+
+# Optional: Automatically log out when the user closes their browser window
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 # Application definition
 
 INSTALLED_APPS = [
@@ -37,11 +54,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'storages',
     'letters',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -49,7 +68,14 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedOrigins": ["http://127.0.0.1:8000", "http://localhost:8000"],
+    "ExposeHeaders": []
+  }
+]
 ROOT_URLCONF = 'internship_project.urls'
 
 TEMPLATES = [
@@ -67,6 +93,12 @@ TEMPLATES = [
     },
 ]
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+
 WSGI_APPLICATION = 'internship_project.wsgi.application'
 
 
@@ -80,17 +112,23 @@ WSGI_APPLICATION = 'internship_project.wsgi.application'
 
 import os
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'internship_letters'),
-        'USER': os.environ.get('DB_USER', 'postgres'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'postgres'),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-    }
-}
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.postgresql',
+#        'NAME': os.environ.get('DB_NAME', 'internship_letters'),
+#        'USER': os.environ.get('DB_USER', 'postgres'),
+#        'PASSWORD': os.environ.get('DB_PASSWORD', 'postgres'),
+#        'HOST': os.environ.get('DB_HOST', 'localhost'),
+#        'PORT': os.environ.get('DB_PORT', '5432'),
+#    }
+#}
 
+# Replace the DATABASES section of your settings.py with this
+tmpPostgres = urlparse(os.getenv("DATABASE_URL"))
+
+DATABASES = {
+    'default': dj_database_url.config(default=os.environ['DATABASE_URL'])
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
@@ -152,3 +190,67 @@ EMAIL_HOST_USER = 'fcfour5678@gmail.com'
 EMAIL_HOST_PASSWORD = 'ufexzjttscrgxjqd'  # App Password generated from account settings
 DEFAULT_FROM_EMAIL = 'Faculty of ICT <your_email@gmail.com>'
 LOGIN_URL = 'letters:login'
+
+import os
+
+# R2 Environment Variables
+AWS_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.environ.get('R2_BUCKET_NAME')
+AWS_S3_ENDPOINT_URL = f"https://{os.environ.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com"
+AWS_S3_SIGNATURE_VERSION = 's3v4'
+AWS_S3_FILE_OVERWRITE = False
+
+# Django Storage Configuration
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "access_key": AWS_ACCESS_KEY_ID,
+            "secret_key": AWS_SECRET_ACCESS_KEY,
+            "bucket_name": AWS_STORAGE_BUCKET_NAME,
+            "endpoint_url": AWS_S3_ENDPOINT_URL,
+            "signature_version": AWS_S3_SIGNATURE_VERSION,
+            "file_overwrite": AWS_S3_FILE_OVERWRITE,
+        },
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+import os
+
+# R2 Environment Variables
+AWS_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.environ.get('R2_BUCKET_NAME')
+AWS_S3_ENDPOINT_URL = f"https://{os.environ.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com"
+AWS_S3_SIGNATURE_VERSION = 's3v4'
+AWS_S3_FILE_OVERWRITE = False
+
+# Django Storage Configuration
+# settings.py
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "access_key": AWS_ACCESS_KEY_ID,
+            "secret_key": AWS_SECRET_ACCESS_KEY,
+            "bucket_name": AWS_STORAGE_BUCKET_NAME,
+            "endpoint_url": AWS_S3_ENDPOINT_URL,
+            "signature_version": AWS_S3_SIGNATURE_VERSION,
+            "file_overwrite": AWS_S3_FILE_OVERWRITE,
+            "querystring_auth": True,  # Enables temporary access signatures for previews
+            "querystring_expire": 3600, # Links valid for 1 hour
+        },
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+R2_ACCOUNT_ID = os.environ.get('R2_ACCOUNT_ID', 'c788fb5f46ea9b486190b58825fa2568')
+AWS_S3_ENDPOINT_URL = os.environ.get(
+    'AWS_S3_ENDPOINT_URL', 
+    f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+)

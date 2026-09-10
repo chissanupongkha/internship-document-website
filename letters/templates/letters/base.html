@@ -54,14 +54,23 @@
   <nav class="max-w-6xl mx-auto px-6">
     <div class="flex gap-6 text-sm">
       <!-- 1. Upload Excel -->
-      <a href="{% url 'letters:index' %}" class="py-2.5 border-b-2 {% if request.path == '/' %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
+      <a href="{% url 'letters:index' %}" class="py-2.5 border-b-2 {% if request.path == '/' or request.path == '/letters/' %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
         Upload Excel
       </a>
 
-      <!-- 2. Upload Signed Papers -->
+      <!-- 2. Upload Template -->
+    
+      <!-- 3. Upload Signed Papers -->
       <a href="{% url 'letters:signed_papers_main' %}" class="py-2.5 border-b-2 {% if 'signed' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
         Upload Signed Papers
       </a>
+
+      <!-- 4. Audit Logs (Staff Only) -->
+      {% if user.is_authenticated %}
+   
+      
+      
+     {% endif %}
     </div>
   </nav>
 </header>
@@ -82,7 +91,7 @@
 {% endif %}
 
 <!-- Main Content Area -->
-<main class="max-w-6xl mx-auto px-6 py-6">
+
   {% block content %}{% endblock %}
 </main>
 

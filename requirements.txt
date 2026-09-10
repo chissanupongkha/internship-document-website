@@ -3,3 +3,8 @@ psycopg2-binary
 python-docx
 pandas
 openpyxl
+gunicorn
+dj-database-url
+psycopg2-binary
+django-storages[s3]
+whitenoise

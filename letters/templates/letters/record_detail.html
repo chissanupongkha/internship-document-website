@@ -2,8 +2,27 @@
 {% block title %}{{ record.display_name }} — Details & Preview{% endblock %}
 {% block content %}
 
-<script src="https://unpkg.com/jszip/dist/jszip.min.js"></script>
-<script src="https://unpkg.com/docx-preview@0.1.15/dist/docx-preview.min.js"></script>
+<!-- JS Dependencies for DOCX Live Preview (jsDelivr CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.15/dist/docx-preview.min.js"></script>
+
+<style>
+  /* Custom Page-Style Rendering Container for DOCX */
+  #docx-container .docx-wrapper {
+    background: transparent !important;
+    padding: 20px 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+  #docx-container .docx-wrapper > section.docx {
+    background: white !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+    margin-bottom: 20px !important;
+    color: #000 !important;
+    border-radius: 2px !important;
+  }
+</style>
 
 <!-- Full Width Container Wrapper -->
 <div class="max-w-[98vw] mx-auto -mt-2">
@@ -46,7 +65,6 @@
             <div class="px-3 py-2 bg-[#FBF9F4] border border-[#E1DACB] rounded-lg flex flex-col gap-1 focus-within:border-[#3F7A62] focus-within:ring-1 focus-within:ring-[#3F7A62]">
               <div class="flex items-center justify-between">
                 <label class="text-[11px] font-bold uppercase tracking-wider text-gray-600">{{ label }}</label>
-               
               </div>
               <input type="text" name="{{ label }}" value="{{ value }}" 
                 class="w-full text-sm border-0 p-0 focus:ring-0 bg-transparent text-gray-800 font-medium">
@@ -76,17 +94,26 @@
       </div>
     </form>
 
-    <!-- Right Panel: DOCX Live Preview -->
+    <!-- Right Panel: Live Preview -->
     <div class="lg:col-span-7 bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 h-[88vh] flex flex-col overflow-hidden">
       
       <!-- Panel Header Bar -->
       <div class="text-xs font-semibold uppercase tracking-wide text-gray-500 pb-3 border-b border-[#E1DACB] flex justify-between items-center shrink-0">
-        <span>Document Live Preview</span>
+        
+        <!-- Mode Switcher -->
+        <div class="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+          <button type="button" id="btn-mode-docx" onclick="switchToDocx()" class="px-2.5 py-1 text-xs font-semibold rounded-md bg-white text-gray-800 shadow-sm">
+            DOCX Preview
+          </button>
+          <button type="button" id="btn-mode-pdf" onclick="switchToPdf()" class="px-2.5 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800">
+            Native PDF
+          </button>
+        </div>
         
         {% if document and document.file %}
         <div class="flex items-center gap-3">
-          <!-- Zoom Controls -->
-          <div class="flex items-center bg-[#FBF9F4] border border-[#E1DACB] rounded-lg p-0.5 text-xs font-mono shadow-sm">
+          <!-- Zoom Controls (for DOCX) -->
+          <div id="docx-zoom-controls" class="flex items-center bg-[#FBF9F4] border border-[#E1DACB] rounded-lg p-0.5 text-xs font-mono shadow-sm">
             <button type="button" onclick="zoomOut()" class="px-2.5 py-1 hover:bg-white rounded font-bold text-gray-700">-</button>
             <span id="zoom-level" class="px-2 text-gray-700 font-semibold min-w-[48px] text-center">100%</span>
             <button type="button" onclick="zoomIn()" class="px-2.5 py-1 hover:bg-white rounded font-bold text-gray-700">+</button>
@@ -96,25 +123,35 @@
           <!-- Download .docx -->
           <a href="{{ document.file.url }}" download class="text-black text-xs font-semibold hover:underline flex items-center gap-1">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-            Download .docx
+            .docx
           </a>
 
           <!-- Download .pdf -->
           <a href="{% url 'letters:download_record_pdf' record.id %}" class="bg-[#3F7A62] text-white text-xs font-semibold px-2.5 py-1 rounded-md hover:bg-[#32624e] transition flex items-center gap-1 shadow-sm">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-            Download .pdf
+            .pdf
           </a>
         </div>
         {% endif %}
       </div>
 
-      <!-- Live Render Container -->
+      <!-- DOCX Render Container -->
       <div class="flex-1 mt-3 bg-[#FBF9F4] rounded-lg border border-[#E1DACB] overflow-auto p-4 relative" id="docx-container">
         {% if not document or not document.file %}
           <div class="h-full flex flex-col items-center justify-center text-gray-400 text-center">
             <p class="text-sm font-medium text-gray-500">No generated document found</p>
           </div>
+        {% else %}
+          <div id="docx-loading" class="h-full flex flex-col items-center justify-center text-gray-400">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#3F7A62] mb-3"></div>
+            <p class="text-sm font-medium text-gray-600">Loading document preview...</p>
+          </div>
         {% endif %}
+      </div>
+
+      <!-- Native PDF iframe Container (Hidden by default) -->
+      <div class="flex-1 mt-3 hidden rounded-lg border border-[#E1DACB] overflow-hidden" id="pdf-container">
+        <iframe src="{% url 'letters:preview_record_pdf' record.id %}" class="w-full h-full border-0"></iframe>
       </div>
 
     </div>
@@ -126,17 +163,6 @@
 <script>
   let currentZoom = 1.0;
 
-  fetch("{{ document.file.url }}")
-    .then(r => r.arrayBuffer())
-    .then(buffer => {
-      docx.renderAsync(buffer, document.getElementById("docx-container"), null, {
-        className: "docx",
-        inWrapper: true,
-        ignoreWidth: false,
-        ignoreHeight: false
-      });
-    });
-
   function updateZoom() {
     const wrapper = document.querySelector("#docx-container .docx-wrapper") || document.querySelector("#docx-container > div");
     if (wrapper) {
@@ -144,12 +170,85 @@
       wrapper.style.transformOrigin = "top center";
       wrapper.style.transition = "transform 0.15s ease-in-out";
     }
-    document.getElementById("zoom-level").innerText = `${Math.round(currentZoom * 100)}%`;
+    const zoomText = document.getElementById("zoom-level");
+    if (zoomText) zoomText.innerText = `${Math.round(currentZoom * 100)}%`;
   }
 
   function zoomIn() { if (currentZoom < 2.0) { currentZoom += 0.1; updateZoom(); } }
   function zoomOut() { if (currentZoom > 0.5) { currentZoom -= 0.1; updateZoom(); } }
   function resetZoom() { currentZoom = 1.0; updateZoom(); }
+
+  function switchToDocx() {
+    document.getElementById("docx-container").classList.remove("hidden");
+    document.getElementById("pdf-container").classList.add("hidden");
+    document.getElementById("docx-zoom-controls").classList.remove("hidden");
+    
+    document.getElementById("btn-mode-docx").className = "px-2.5 py-1 text-xs font-semibold rounded-md bg-white text-gray-800 shadow-sm";
+    document.getElementById("btn-mode-pdf").className = "px-2.5 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800";
+  }
+
+  function switchToPdf() {
+    document.getElementById("docx-container").classList.add("hidden");
+    document.getElementById("pdf-container").classList.remove("hidden");
+    document.getElementById("docx-zoom-controls").classList.add("hidden");
+
+    document.getElementById("btn-mode-pdf").className = "px-2.5 py-1 text-xs font-semibold rounded-md bg-white text-gray-800 shadow-sm";
+    document.getElementById("btn-mode-docx").className = "px-2.5 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800";
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const container = document.getElementById("docx-container");
+    const docxUrl = "{% url 'letters:preview_record_docx' record.id %}";
+
+    const docxLib = window.docx || window.docxPreview;
+
+    if (!docxLib || !window.JSZip) {
+      container.innerHTML = `
+        <div class="h-full flex flex-col items-center justify-center text-center p-6">
+          <svg class="w-10 h-10 mb-2 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <p class="font-semibold text-sm text-gray-800">DOCX JS Renderer Unavailable</p>
+          <p class="text-xs text-gray-500 mt-1 mb-3">CDN script blocked by network/ad-blocker.</p>
+          <button onclick="switchToPdf()" class="bg-[#3F7A62] text-white text-xs px-3 py-1.5 rounded-md font-semibold hover:bg-[#32624e]">
+            Switch to Native PDF Preview
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    fetch(docxUrl)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch file (HTTP ${response.status})`);
+        }
+        return response.arrayBuffer();
+      })
+      .then(buffer => {
+        container.innerHTML = "";
+        return docxLib.renderAsync(buffer, container, null, {
+          className: "docx",
+          inWrapper: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          breakPages: true
+        });
+      })
+      .then(() => {
+        updateZoom();
+      })
+      .catch(err => {
+        console.error("DOCX Preview Error:", err);
+        container.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-red-600">
+            <p class="font-semibold text-sm">Unable to render DOCX preview</p>
+            <p class="text-xs text-gray-500 mt-1 mb-3">${err.message}</p>
+            <button onclick="switchToPdf()" class="bg-[#3F7A62] text-white text-xs px-3 py-1.5 rounded-md font-semibold hover:bg-[#32624e]">
+              Switch to Native PDF View
+            </button>
+          </div>
+        `;
+      });
+  });
 </script>
 {% endif %}
 

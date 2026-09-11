@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && locale-gen \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy fonts from your actual project folder into system font directory
+# Copy Thai fonts
 COPY letters/static/fonts/*.ttf /usr/share/fonts/truetype/custom/
 RUN fc-cache -f -v
 
@@ -18,5 +18,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
-# Point to your actual WSGI module and Render's standard port
+# Make entrypoint script executable
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["gunicorn", "internship_project.wsgi:application", "--bind", "0.0.0.0:10000"]

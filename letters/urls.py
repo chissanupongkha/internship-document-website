@@ -38,5 +38,5 @@ urlpatterns = [
     path('audit-logs/', views.audit_logs_view, name='audit_logs'),
     
     path('record/<int:record_id>/preview-pdf/', views.preview_record_pdf, name='preview_record_pdf'),
-    path('record/<int:record_id>/preview-docx/', views.preview_record_docx, name='preview_record_docx'),
+
 ]

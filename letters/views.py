@@ -862,16 +862,31 @@ def signed_preview(request, batch_id=None):
     selected_batch_id = request.GET.get('batch_id') or (str(batch_id) if batch_id else 'all')
 
     if selected_batch_id != 'all' and selected_batch_id.isdigit():
-        selected_batch = get_object_or_404(UploadedBatch, id=int(selected_batch_id))
-        records = StudentRecord.objects.filter(batch=selected_batch)
+        records = StudentRecord.objects.filter(batch_id=int(selected_batch_id))
     else:
         records = StudentRecord.objects.select_related('batch').order_by('-id')
 
+    # Fix N+1 Query: Fetch all relevant documents in ONE query and map to record_id
+    docs = GeneratedDocument.objects.filter(record__in=records).order_by('record_id', 'id')
+    latest_doc_map = {doc.record_id: doc for doc in docs}
+
     record_summary = []
     for r in records:
-        doc = GeneratedDocument.objects.filter(record=r).last()
-        student_email = get_student_email(r)
-        has_signed = bool(doc and _field_ready(doc.signed_file))
+        doc = latest_doc_map.get(r.id)
+
+        # Safe student email extraction
+        try:
+            student_email = get_student_email(r)
+        except Exception:
+            student_email = ""
+
+        # Safe file readiness check (prevents crashes if file is missing from disk)
+        has_signed = False
+        if doc and getattr(doc, 'signed_file', None):
+            try:
+                has_signed = bool(_field_ready(doc.signed_file))
+            except Exception:
+                has_signed = False
 
         record_summary.append({
             'record': r,
@@ -885,7 +900,6 @@ def signed_preview(request, batch_id=None):
         'selected_batch_id': str(selected_batch_id),
         'summary': record_summary,
     })
-
 
 @staff_required
 def send_signed_emails(request):

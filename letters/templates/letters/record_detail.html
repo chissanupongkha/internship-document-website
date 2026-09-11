@@ -194,47 +194,9 @@
     document.getElementById("btn-mode-docx").className = "px-2.5 py-1 text-xs font-semibold rounded-md text-gray-500 hover:text-gray-800";
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
-    const container = document.getElementById("docx-container");
-    const docxUrl = "{% url 'letters:preview_record_docx' record.id %}";
 
-    const docxLib = window.docx || window.docxPreview;
 
-    
-
-    fetch(docxUrl)
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Failed to fetch file (HTTP ${response.status})`);
-        }
-        return response.arrayBuffer();
-      })
-      .then(buffer => {
-        container.innerHTML = "";
-        return docxLib.renderAsync(buffer, container, null, {
-          className: "docx",
-          inWrapper: true,
-          ignoreWidth: false,
-          ignoreHeight: false,
-          breakPages: true
-        });
-      })
-      .then(() => {
-        updateZoom();
-      })
-      .catch(err => {
-        console.error("DOCX Preview Error:", err);
-        container.innerHTML = `
-          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-red-600">
-            <p class="font-semibold text-sm">Unable to render DOCX preview</p>
-            <p class="text-xs text-gray-500 mt-1 mb-3">${err.message}</p>
-            <button onclick="switchToPdf()" class="bg-[#3F7A62] text-white text-xs px-3 py-1.5 rounded-md font-semibold hover:bg-[#32624e]">
-              Switch to Native PDF View
-            </button>
-          </div>
-        `;
-      });
-  });
+  ;
 </script>
 {% endif %}
 

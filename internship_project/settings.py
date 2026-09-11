@@ -32,7 +32,7 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 SECRET_KEY = os.environ.get('l#)qhc24i=@3=7dlebq@81^c6=3ka6ua^j#4&eq^w=#7l%1v6#', 'dev-only-insecure-key-change-me')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',

@@ -745,24 +745,24 @@ def download_record_pdf(request, record_id):
     return response
 
 
+@xframe_options_sameorigin  # 1. Allows template to embed in <iframe>
 @staff_required
 def preview_record_pdf(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
-    document = GeneratedDocument.objects.filter(record=record).last()
+    doc = GeneratedDocument.objects.filter(record=record).last()
 
-    if document and _field_ready(document.signed_file):
-        document.signed_file.open('rb')
-        response = FileResponse(document.signed_file, content_type='application/pdf')
-        response['Content-Disposition'] = f'inline; filename="{os.path.basename(document.signed_file.name)}"'
+    if not doc or not doc.pdf_file:
+        return HttpResponse("PDF not found for this record.", status=404)
+
+    file_path = doc.pdf_file.path
+    if not os.path.exists(file_path):
+        return HttpResponse("PDF file is missing on server storage.", status=404)
+
+    # 2. Read and stream PDF directly with inline header
+    with open(file_path, 'rb') as f:
+        response = HttpResponse(f.read(), content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
         return response
-
-    ref_no = str(2600 + record.row_index)
-    pdf_buf, filename = generate_pdf_for_row(record.data, ref_no=ref_no)
-    pdf_buf.seek(0)
-
-    response = HttpResponse(pdf_buf.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{filename}"'
-    return response
 
 
 @staff_required

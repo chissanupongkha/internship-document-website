@@ -751,17 +751,36 @@ def generate_letter_buffer(student_record, letter_type='request'):
 
 
 def convert_docx_bytes_to_pdf(docx_bytes: bytes) -> bytes:
-    """Converts DOCX bytes to PDF bytes using Microsoft Word via docx2pdf on macOS."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        docx_path = os.path.join(tmpdir, "input.docx")
-        pdf_path = os.path.join(tmpdir, "input.pdf")
-
-        with open(docx_path, "wb") as f:
+    """Converts DOCX binary data to PDF binary data using headless LibreOffice on Linux."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_docx_path = os.path.join(tmp_dir, "temp_doc.docx")
+        
+        # Write input DOCX to temp file
+        with open(input_docx_path, "wb") as f:
             f.write(docx_bytes)
 
-        convert(docx_path, pdf_path)
+        # Execute headless LibreOffice CLI conversion
+        command = [
+            "libreoffice",
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            tmp_dir,
+            input_docx_path,
+        ]
+        
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice error: {result.stderr.decode('utf-8')}")
 
-        with open(pdf_path, "rb") as f:
+        output_pdf_path = os.path.join(tmp_dir, "temp_doc.pdf")
+        if not os.path.exists(output_pdf_path):
+            raise FileNotFoundError("LibreOffice completed without throwing an error, but no PDF was generated.")
+
+        # Read converted PDF bytes
+        with open(output_pdf_path, "rb") as f:
             return f.read()
 
 

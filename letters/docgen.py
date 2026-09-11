@@ -29,7 +29,7 @@ from docxtpl import DocxTemplate
 from django.conf import settings
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-
+from docx.oxml import OxmlElement
 
 FONT_PATH = os.path.join(settings.BASE_DIR, 'letters', 'static', 'fonts', 'THSarabunNew.ttf')
 pdfmetrics.registerFont(TTFont("THSarabun", FONT_PATH))

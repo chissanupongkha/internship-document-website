@@ -752,18 +752,31 @@ def preview_record_pdf(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
     doc = GeneratedDocument.objects.filter(record=record).last()
 
-    if not doc or not doc.pdf_file:
-        return HttpResponse("PDF not found for this record.", status=404)
+    if not doc or not getattr(doc, 'file', None):
+        return HttpResponse("No generated document found for this record.", status=404)
 
-    file_path = doc.pdf_file.path
+    file_path = doc.file.path
     if not os.path.exists(file_path):
-        return HttpResponse("PDF file is missing on server storage.", status=404)
+        return HttpResponse("Document file is missing on server storage.", status=404)
 
-    # 2. Read and stream PDF directly with inline header
-    with open(file_path, 'rb') as f:
-        response = HttpResponse(f.read(), content_type='application/pdf')
-        response['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
+    # 1. Direct PDF streaming if file is already a PDF
+    if file_path.lower().endswith('.pdf'):
+        with open(file_path, 'rb') as f:
+            response = HttpResponse(f.read(), content_type='application/pdf')
+            response['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
+            return response
+
+    # 2. Convert DOCX to PDF stream via LibreOffice helper
+    try:
+        with open(file_path, 'rb') as f:
+            docx_bytes = f.read()
+        pdf_bytes = convert_docx_bytes_to_pdf(docx_bytes)
+        
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="student_{record.student_id}.pdf"'
         return response
+    except Exception as e:
+        return HttpResponse(f"PDF Conversion Failed: {str(e)}", status=500)
 
 
 @staff_required

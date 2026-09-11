@@ -33,8 +33,16 @@ SECRET_KEY = os.environ.get('l#)qhc24i=@3=7dlebq@81^c6=3ka6ua^j#4&eq^w=#7l%1v6#'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '.onrender.com',  # Matches any *.onrender.com domain
+]
 
-ALLOWED_HOSTS = ['internship-document-website.onrender.com', 'localhost', '127.0.0.1']
+# Automatically append Render's dynamic hostname if set
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # internship_project/settings.py
 

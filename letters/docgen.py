@@ -59,7 +59,6 @@ H_YEAR_LEVEL = ('ชั้นปีที่',)
 H_YEAR = H_YEAR_LEVEL  # ตัวแปร Alias เพื่อรองรับการนำเข้าจาก views.py
 H_COMPANY = (
     'ชื่อหน่วยงาน/บริษัท ที่ต้องการฝึกงาน', 
-    'ชื่อหน่วยงาน/บริษัท ที่ต้องการฝึกงาน.1',
     'Company/Organization Name for Internship',
     'Company',
     'Company Name',
@@ -67,11 +66,11 @@ H_COMPANY = (
     'ชื่อบริษัท',
     'หน่วยงาน'
 )
-H_CONTACT_PERSON = ('โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท)', 'โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท).1')
-H_CONTACT_POSITION = ('ตำแหน่ง', 'ตำแหน่ง.1')
-H_DEPARTMENT = ('นักศึกษาเข้าฝึกงานในส่วนของฝ่ายงาน', 'นักศึกษาเข้าฝึกงานในส่วนของฝ่ายงาน.1')
-H_INTERN_POSITION = ('ตำแหน่งของการฝึกงาน', 'ตำแหน่งของการฝึกงาน.1')
-H_PERIOD = ('ช่วงเวลาของการฝึกงาน', 'ช่วงเวลาของการฝึกงาน.1')
+H_CONTACT_PERSON = ('โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท)' )
+H_CONTACT_POSITION = ('ตำแหน่ง')
+H_DEPARTMENT = ('นักศึกษาเข้าฝึกงานในส่วนของฝ่ายงาน', )
+H_INTERN_POSITION = ('ตำแหน่งของการฝึกงาน')
+H_PERIOD = ('ช่วงเวลาของการฝึกงาน')
 
 # จับคู่ประเภทหนังสือภายใน docgen ('confirm'/'request') ไปยังค่าของ LetterTemplate.letter_type ('confirmation'/'request')
 KIND_TO_TEMPLATE_TYPE = {'confirm': 'confirmation', 'request': 'request', 'extension': 'extension'}

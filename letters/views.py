@@ -755,23 +755,24 @@ def preview_record_pdf(request, record_id):
     if not doc or not getattr(doc, 'file', None):
         return HttpResponse("No generated document found for this record.", status=404)
 
-    file_path = doc.file.path
-    if not os.path.exists(file_path):
-        return HttpResponse("Document file is missing on server storage.", status=404)
+    # Use doc.file.open() instead of doc.file.path to support remote/cloud storage
+    try:
+        with doc.file.open('rb') as f:
+            file_bytes = f.read()
+    except Exception as e:
+        return HttpResponse(f"Unable to read file from storage: {str(e)}", status=404)
 
-    # 1. Direct PDF streaming if file is already a PDF
-    if file_path.lower().endswith('.pdf'):
-        with open(file_path, 'rb') as f:
-            response = HttpResponse(f.read(), content_type='application/pdf')
-            response['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
-            return response
+    filename = os.path.basename(doc.file.name)
+
+    # 1. Stream directly if file is already a PDF
+    if doc.file.name.lower().endswith('.pdf'):
+        response = HttpResponse(file_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        return response
 
     # 2. Convert DOCX to PDF stream via LibreOffice helper
     try:
-        with open(file_path, 'rb') as f:
-            docx_bytes = f.read()
-        pdf_bytes = convert_docx_bytes_to_pdf(docx_bytes)
-        
+        pdf_bytes = convert_docx_bytes_to_pdf(file_bytes)
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="student_{record.student_id}.pdf"'
         return response
@@ -779,32 +780,6 @@ def preview_record_pdf(request, record_id):
         return HttpResponse(f"PDF Conversion Failed: {str(e)}", status=500)
 
 
-@staff_required
-def preview_record_docx(request, record_id):
-    record = get_object_or_404(StudentRecord, id=record_id)
-    document = GeneratedDocument.objects.filter(record=record).last()
-
-    if document and _field_ready(document.file):
-        document.file.open('rb')
-        response = FileResponse(
-            document.file,
-            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        )
-        response['Content-Disposition'] = f'inline; filename="{os.path.basename(document.file.name)}"'
-        return response
-
-    ref_no = str(2600 + record.row_index)
-    buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no)
-    if not buf:
-        raise Http404(fname_or_reason or "Document generation failed")
-
-    buf.seek(0)
-    response = HttpResponse(
-        buf.getvalue(),
-        content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    )
-    response['Content-Disposition'] = f'inline; filename="{fname_or_reason}"'
-    return response
 
 
 @staff_required

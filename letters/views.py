@@ -55,11 +55,18 @@ from .models import (
 
 IMPORTANT_FIELDS = ['student_id', 'display_name', 'company', 'contractor', 'internship_position', 'period', 'year']
 
-PRIORITY_HEADERS = set(
-    H_STUDENT_ID + H_LETTER_TYPE + H_COURSE + H_COMPANY +
-    H_CONTACT_PERSON + H_CONTACT_POSITION + H_INTERN_POSITION +
-    H_PERIOD + H_PREFIX + H_FIRST_NAME + H_LAST_NAME + H_YEAR
-)
+raw_priority_headers = [
+    H_STUDENT_ID, H_LETTER_TYPE, H_COURSE, H_COMPANY,
+    H_CONTACT_PERSON, H_CONTACT_POSITION, H_INTERN_POSITION,
+    H_PERIOD, H_PREFIX, H_FIRST_NAME, H_LAST_NAME, H_YEAR
+]
+
+PRIORITY_HEADERS = set()
+for item in raw_priority_headers:
+    if isinstance(item, (tuple, list, set)):
+        PRIORITY_HEADERS.update(item)
+    else:
+        PRIORITY_HEADERS.add(item)
 
 ENGLISH_PRIORITY_KEYS = {
     'Letter Type',

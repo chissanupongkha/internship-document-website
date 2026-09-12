@@ -192,7 +192,8 @@ EMAIL_HOST_USER = 'fcfour5678@gmail.com'
 EMAIL_HOST_PASSWORD = 'ufexzjttscrgxjqd'  # App Password generated from account settings
 DEFAULT_FROM_EMAIL = 'Faculty of ICT <your_email@gmail.com>'
 LOGIN_URL = 'letters:login'
-
+EMAIL_TIMEOUT = 60
+EMAIL_USE_SSL = False
 import os
 
 # R2 Environment Variables

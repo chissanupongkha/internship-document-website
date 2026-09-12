@@ -1091,6 +1091,27 @@ def lettertype_create(request):
             messages.success(request, f"Created letter type '{display_name}'.")
     return redirect('letters:lettertype_list')
 
+@staff_required
+def preview_record_docx(request, record_id):
+    record = get_object_or_404(StudentRecord, id=record_id)
+    doc = GeneratedDocument.objects.filter(record=record).last()
+
+    if not doc or not getattr(doc, 'file', None):
+        return HttpResponse("No generated document found for this record.", status=404)
+
+    try:
+        with doc.file.open('rb') as f:
+            file_bytes = f.read()
+        
+        response = HttpResponse(
+            file_bytes, 
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        filename = os.path.basename(doc.file.name)
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        return response
+    except Exception as e:
+        return HttpResponse(f"Unable to read file: {str(e)}", status=404)
 
 @staff_required
 def mapping_create(request):

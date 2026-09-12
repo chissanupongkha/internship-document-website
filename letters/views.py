@@ -5,7 +5,11 @@ import os
 import re
 import zipfile
 from io import BytesIO
-
+import subprocess
+import tempfile
+import zipfile
+from pathlib import Path
+from docx import Document
 import pandas as pd
 from django.conf import settings
 from django.contrib import messages
@@ -41,6 +45,11 @@ from .docgen import (
     generate_pdf_for_row,
     normalize_letter_type,
     render_with_template,
+    PDF_SAFE_FONT,
+    _get_libreoffice_bin,
+    apply_thai_font_fix,
+    generate_for_row,
+)
 )
 from .models import (
     AuditLog,
@@ -652,7 +661,6 @@ def audit_logs_view(request):
 
 
 logger = logging.getLogger(__name__)
-
 @staff_required
 def generate(request, batch_id):
     batch = get_object_or_404(UploadedBatch, id=batch_id)
@@ -671,71 +679,112 @@ def generate(request, batch_id):
         errors = []
 
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for record in records:
-                try:
-                    file_bytes = None
-                    filename = None
-                    ref_no = str(record.student_id or record.id or "___")
-
-                    # 1. Reuse existing stored document if available
-                    doc = GeneratedDocument.objects.filter(record=record).last()
-                    if doc and getattr(doc, "file", None):
-                        stored_name = doc.file.name.lower()
-                        if fmt == "pdf" and stored_name.endswith(".pdf"):
-                            with doc.file.open("rb") as f:
-                                file_bytes = f.read()
-                            filename = f"letter_{ref_no}.pdf"
-                        elif fmt == "docx" and stored_name.endswith(".docx"):
-                            with doc.file.open("rb") as f:
-                                file_bytes = f.read()
-                            filename = f"letter_{ref_no}.docx"
-
-                    # 2. Fallback to dynamic generation if not cached
-                    if file_bytes is None:
-                        if fmt == "pdf":
-                            buf, filename = generate_pdf_for_row(record.data, ref_no=ref_no)
-                        else:
-                            buf, filename = generate_for_row(record.data, ref_no=ref_no)
-
+            if fmt == "docx":
+                # DOCX generation is purely in-memory and fast
+                for record in records:
+                    try:
+                        buf, filename = generate_for_row(record.data, ref_no="___")
                         if buf:
-                            file_bytes = buf.getvalue() if hasattr(buf, "getvalue") else buf.read()
+                            zf.writestr(filename, buf.getvalue())
+                            added_count += 1
+                    except Exception as e:
+                        errors.append(f"Record #{record.id}: {str(e)}")
+            else:
+                # PDF Format: Single-pass batch conversion to prevent worker timeout/OOM
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    file_map = {}  # doc_filename -> (zip_output_filename, generated_pdf_path)
+                    docx_paths = []
 
-                    # 3. Add file bytes to ZIP archive
-                    if file_bytes:
-                        zf.writestr(filename, file_bytes)
-                        added_count += 1
+                    # 1. Generate and save all modified DOCX files to tmpdir
+                    for record in records:
+                        try:
+                            ref = str(record.student_id or record.id or "___")
+                            res = generate_for_row(record.data, ref_no=ref)
+                            if not res or res[0] is None:
+                                continue
 
-                except Exception as e:
-                    err_msg = f"Record #{record.id} ({record.display_name}): {str(e)}"
-                    errors.append(err_msg)
-                    logger.error(f"Batch generation error: {err_msg}")
+                            docx_buf, orig_fname = res
+                            pdf_fname = orig_fname.rsplit(".", 1)[0] + ".pdf"
+
+                            docx_buf.seek(0)
+                            pdf_input_doc = Document(docx_buf)
+                            apply_thai_font_fix(pdf_input_doc, font_name=PDF_SAFE_FONT)
+
+                            doc_filename = f"doc_{record.id}.docx"
+                            input_docx_path = os.path.join(tmpdir, doc_filename)
+                            pdf_input_doc.save(input_docx_path)
+
+                            docx_paths.append(input_docx_path)
+                            file_map[doc_filename] = (
+                                pdf_fname,
+                                os.path.join(tmpdir, f"doc_{record.id}.pdf"),
+                            )
+                        except Exception as e:
+                            errors.append(f"Record #{record.id}: {str(e)}")
+
+                    # 2. Batch-convert ALL documents in ONE LibreOffice process
+                    if docx_paths:
+                        soffice_bin = _get_libreoffice_bin()
+                        if not soffice_bin:
+                            messages.error(request, "ไม่พบโปรแกรม LibreOffice ในระบบ")
+                            return redirect("letters:preview", batch_id=batch_id)
+
+                        env = os.environ.copy()
+                        env["LANG"] = "th_TH.UTF-8"
+                        env["LC_ALL"] = "th_TH.UTF-8"
+
+                        lo_profile_dir = os.path.join(tmpdir, "lo_profile")
+                        os.makedirs(lo_profile_dir, exist_ok=True)
+                        profile_uri = Path(lo_profile_dir).resolve().as_uri()
+
+                        cmd = [
+                            soffice_bin,
+                            "--headless",
+                            "--invisible",
+                            "--nologo",
+                            "--norestore",
+                            "--nofirststartwizard",
+                            f"-env:UserInstallation={profile_uri}",
+                            "--convert-to",
+                            "pdf:writer_pdf_Export",
+                            "--outdir",
+                            tmpdir,
+                            *docx_paths,  # Pass all file paths at once
+                        ]
+
+                        try:
+                            subprocess.run(
+                                cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                env=env,
+                                timeout=90,
+                            )
+                        except subprocess.TimeoutExpired:
+                            logger.error("Batch LibreOffice conversion timed out.")
+
+                    # 3. Read converted PDFs into the ZIP archive
+                    for doc_filename, (out_zip_fname, target_pdf_path) in file_map.items():
+                        if os.path.exists(target_pdf_path):
+                            with open(target_pdf_path, "rb") as f:
+                                zf.writestr(out_zip_fname, f.read())
+                                added_count += 1
+                        else:
+                            errors.append(f"PDF generation failed for {out_zip_fname}")
 
         if added_count == 0:
             first_err = errors[0] if errors else "PDF conversion failed."
             messages.error(request, f"Failed to generate documents. Reason: {first_err}")
             return redirect("letters:preview", batch_id=batch_id)
 
-        if errors:
-            messages.warning(request, f"Generated {added_count} document(s) with {len(errors)} error(s).")
-
         zip_buffer.seek(0)
         response = HttpResponse(zip_buffer.getvalue(), content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="letters_batch_{batch.id}_{fmt}.zip"'
+        response["Content-Disposition"] = (
+            f'attachment; filename="letters_batch_{batch.id}_{fmt}.zip"'
+        )
         return response
 
     return redirect("letters:preview", batch_id=batch_id)
-
-@staff_required
-def results(request, run_id):
-    gen_batch = get_object_or_404(GenerationBatch, id=run_id)
-    documents = gen_batch.documents.all()
-    generated = documents.filter(status=GeneratedDocument.STATUS_GENERATED)
-    skipped = documents.filter(status=GeneratedDocument.STATUS_SKIPPED)
-    return render(request, 'letters/results.html', {
-        'run_id': gen_batch.id,
-        'generated': generated,
-        'skipped': skipped,
-    })
 
 
 @staff_required

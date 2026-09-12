@@ -804,6 +804,27 @@ def download(request, run_id):
     return FileResponse(zip_buf, as_attachment=True, filename='internship_letters.zip')
 
 
+@staff_required
+def results(request, run_id):
+    """Show a summary of a completed generation run (GenerationBatch), listing
+    every document produced and whether it succeeded, with a link to download
+    the whole run as a zip via the `download` view above."""
+    gen_batch = get_object_or_404(GenerationBatch, id=run_id)
+    documents = gen_batch.documents.select_related('record').order_by('id')
+
+    generated_count = documents.filter(status=GeneratedDocument.STATUS_GENERATED).count()
+    total_count = documents.count()
+    failed_count = total_count - generated_count
+
+    return render(request, 'letters/results.html', {
+        'batch': gen_batch,
+        'documents': documents,
+        'generated_count': generated_count,
+        'failed_count': failed_count,
+        'total_count': total_count,
+    })
+
+
 # ==========================================
 # FILE PREVIEW & DOWNLOAD VIEWS
 # ==========================================

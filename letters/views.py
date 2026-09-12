@@ -23,6 +23,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
+logger = logging.getLogger(__name__)
+
 from .decorators import staff_required
 from .docgen import (
     AVAILABLE_SOURCE_FIELDS,
@@ -660,7 +662,7 @@ def audit_logs_view(request):
     return render(request, 'letters/audit_logs.html', {'logs': logs})
 
 
-logger = logging.getLogger(__name__)
+
 @staff_required
 def generate(request, batch_id):
     batch = get_object_or_404(UploadedBatch, id=batch_id)

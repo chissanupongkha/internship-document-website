@@ -332,7 +332,7 @@ def _set_font(run, size=14, bold=False, color=None, name=None):
 
 
 def _para(doc, text="", align=WD_ALIGN_PARAGRAPH.LEFT, size=14, bold=False,
-          space_after=3, space_before=0, line_spacing=1.2, indent_first=None):
+          space_after=3, space_before=0, line_spacing=1, indent_first=None):
     """สร้างย่อหน้าใหม่พร้อมตั้งค่ารูปแบบและฟอนต์ (ปรับ line_spacing เป็น 1.2 เพื่อป้องกันวรรณยุกต์ซ้อนโดนตัด)"""
     p = doc.add_paragraph()
     p.alignment = align

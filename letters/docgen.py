@@ -66,11 +66,11 @@ H_COMPANY = (
     'ชื่อบริษัท',
     'หน่วยงาน'
 )
-H_CONTACT_PERSON = ('โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท)' )
+H_CONTACT_PERSON = ('โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท)',)
 H_CONTACT_POSITION = ('ตำแหน่ง')
 H_DEPARTMENT = ('นักศึกษาเข้าฝึกงานในส่วนของฝ่ายงาน', )
 H_INTERN_POSITION = ('ตำแหน่งของการฝึกงาน')
-H_PERIOD = ('ช่วงเวลาของการฝึกงาน')
+H_PERIOD = ('ช่วงเวลาของการฝึกงาน',)
 
 # จับคู่ประเภทหนังสือภายใน docgen ('confirm'/'request') ไปยังค่าของ LetterTemplate.letter_type ('confirmation'/'request')
 KIND_TO_TEMPLATE_TYPE = {'confirm': 'confirmation', 'request': 'request', 'extension': 'extension'}

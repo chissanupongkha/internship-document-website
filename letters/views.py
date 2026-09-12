@@ -650,6 +650,8 @@ def audit_logs_view(request):
     return render(request, 'letters/audit_logs.html', {'logs': logs})
 
 
+logger = logging.getLogger(__name__)
+
 @staff_required
 def generate(request, batch_id):
     batch = get_object_or_404(UploadedBatch, id=batch_id)
@@ -663,28 +665,57 @@ def generate(request, batch_id):
             return redirect("letters:preview", batch_id=batch_id)
 
         records = StudentRecord.objects.filter(id__in=selected_ids, batch=batch)
-        zip_buffer = BytesIO()
+        zip_buffer = io.BytesIO()
         added_count = 0
         errors = []
 
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for record in records:
                 try:
-                    if fmt == "pdf":
-                        buf, filename = generate_pdf_for_row(record.data, ref_no="___")
-                    else:
-                        buf, filename = generate_for_row(record.data, ref_no="___")
+                    file_bytes = None
+                    filename = None
+                    ref_no = str(record.student_id or record.id or "___")
 
-                    if buf:
-                        zf.writestr(filename, buf.getvalue())
+                    # 1. Reuse existing stored document if available
+                    doc = GeneratedDocument.objects.filter(record=record).last()
+                    if doc and getattr(doc, "file", None):
+                        stored_name = doc.file.name.lower()
+                        if fmt == "pdf" and stored_name.endswith(".pdf"):
+                            with doc.file.open("rb") as f:
+                                file_bytes = f.read()
+                            filename = f"letter_{ref_no}.pdf"
+                        elif fmt == "docx" and stored_name.endswith(".docx"):
+                            with doc.file.open("rb") as f:
+                                file_bytes = f.read()
+                            filename = f"letter_{ref_no}.docx"
+
+                    # 2. Fallback to dynamic generation if not cached
+                    if file_bytes is None:
+                        if fmt == "pdf":
+                            buf, filename = generate_pdf_for_row(record.data, ref_no=ref_no)
+                        else:
+                            buf, filename = generate_for_row(record.data, ref_no=ref_no)
+
+                        if buf:
+                            file_bytes = buf.getvalue() if hasattr(buf, "getvalue") else buf.read()
+
+                    # 3. Add file bytes to ZIP archive
+                    if file_bytes:
+                        zf.writestr(filename, file_bytes)
                         added_count += 1
+
                 except Exception as e:
-                    errors.append(f"Record #{record.id} ({record.display_name}): {str(e)}")
+                    err_msg = f"Record #{record.id} ({record.display_name}): {str(e)}"
+                    errors.append(err_msg)
+                    logger.error(f"Batch generation error: {err_msg}")
 
         if added_count == 0:
             first_err = errors[0] if errors else "PDF conversion failed."
             messages.error(request, f"Failed to generate documents. Reason: {first_err}")
             return redirect("letters:preview", batch_id=batch_id)
+
+        if errors:
+            messages.warning(request, f"Generated {added_count} document(s) with {len(errors)} error(s).")
 
         zip_buffer.seek(0)
         response = HttpResponse(zip_buffer.getvalue(), content_type="application/zip")
@@ -692,7 +723,6 @@ def generate(request, batch_id):
         return response
 
     return redirect("letters:preview", batch_id=batch_id)
-
 
 @staff_required
 def results(request, run_id):

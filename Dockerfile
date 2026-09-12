@@ -22,4 +22,4 @@ COPY . .
 RUN chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn", "internship_project.wsgi:application", "--bind", "0.0.0.0:10000"]
+CMD ["gunicorn", "internship_project.wsgi:application", "--bind", "0.0.0.0:10000", "--timeout", "120"]

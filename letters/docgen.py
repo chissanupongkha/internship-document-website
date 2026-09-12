@@ -845,11 +845,7 @@ def generate_pdf_for_row(row, ref_no="___"):
     docx_buf, fname = res
     pdf_fname = fname.rsplit('.', 1)[0] + '.pdf'
 
-    # Re-open the generated docx and swap its font to PDF_SAFE_FONT just for
-    # this conversion. TH Sarabun New (THAI_FONT / the docx default) appears
-    # to trigger a LibreOffice PDF-export bug that corrupts Thai glyph shaping
-    # even though the docx itself renders fine — see PDF_SAFE_FONT comment.
-    # The original docx_buf (used for direct .docx download) is left untouched.
+    # Re-open the generated docx and swap font to PDF_SAFE_FONT
     docx_buf.seek(0)
     pdf_input_doc = Document(docx_buf)
     apply_thai_font_fix(pdf_input_doc, font_name=PDF_SAFE_FONT)
@@ -871,9 +867,6 @@ def generate_pdf_for_row(row, ref_no="___"):
         with open(input_docx, "wb") as f:
             f.write(pdf_input_buf.getvalue())
 
-        # Isolated profile per conversion (see convert_docx_to_pdf for why this
-        # matters for Thai text specifically) — nested inside tmpdir so it's
-        # cleaned up automatically along with everything else here.
         lo_profile_dir = os.path.join(tmpdir, "lo_profile")
         os.makedirs(lo_profile_dir, exist_ok=True)
         profile_uri = Path(lo_profile_dir).resolve().as_uri()
@@ -883,15 +876,27 @@ def generate_pdf_for_row(row, ref_no="___"):
             "--headless",
             "--invisible",
             "--nologo",
+            "--norestore",
+            "--nofirststartwizard",
             f"-env:UserInstallation={profile_uri}",
             "--convert-to", "pdf:writer_pdf_Export",
             "--outdir", tmpdir,
             input_docx
         ]
 
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-        if result.returncode != 0:
-            raise RuntimeError(f"การแปลงไฟล์ PDF ล้มเหลว: {result.stderr.decode('utf-8', errors='ignore')}")
+        try:
+            # Enforce 25-second timeout so stalled processes fail gracefully instead of crashing Gunicorn
+            result = subprocess.run(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                env=env,
+                timeout=25
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"การแปลงไฟล์ PDF ล้มเหลว: {result.stderr.decode('utf-8', errors='ignore')}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("กระบวนการแปลง PDF หมดเวลา (Timeout) ก่อนจะเสร็จสิ้น")
 
         output_pdf = os.path.join(tmpdir, "document.pdf")
         if not os.path.exists(output_pdf):

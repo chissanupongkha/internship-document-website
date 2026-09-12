@@ -3,14 +3,15 @@ import io
 import logging
 import os
 import re
-import zipfile
-from io import BytesIO
 import subprocess
 import tempfile
 import zipfile
+from io import BytesIO
 from pathlib import Path
+
 from docx import Document
 import pandas as pd
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
@@ -22,8 +23,6 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
-
-logger = logging.getLogger(__name__)
 
 from .decorators import staff_required
 from .docgen import (
@@ -40,18 +39,16 @@ from .docgen import (
     H_PREFIX,
     H_STUDENT_ID,
     H_YEAR,
+    PDF_SAFE_FONT,
     SUPPORTED_LETTER_TYPES,
+    _get_libreoffice_bin,
+    apply_thai_font_fix,
     convert_docx_bytes_to_pdf,
     extract_fields_from_docx,
     generate_for_row,
     generate_pdf_for_row,
     normalize_letter_type,
     render_with_template,
-    PDF_SAFE_FONT,
-    _get_libreoffice_bin,
-    apply_thai_font_fix,
-    generate_for_row,
-)
 )
 from .models import (
     AuditLog,
@@ -65,6 +62,8 @@ from .models import (
     TemplateFieldMapping,
     UploadedBatch,
 )
+
+logger = logging.getLogger(__name__)
 
 IMPORTANT_FIELDS = ['student_id', 'display_name', 'company', 'contractor', 'internship_position', 'period', 'year']
 
@@ -662,7 +661,6 @@ def audit_logs_view(request):
     return render(request, 'letters/audit_logs.html', {'logs': logs})
 
 
-
 @staff_required
 def generate(request, batch_id):
     batch = get_object_or_404(UploadedBatch, id=batch_id)
@@ -828,7 +826,7 @@ def download_record_pdf(request, record_id):
     return response
 
 
-@xframe_options_sameorigin  # 1. Allows template to embed in <iframe>
+@xframe_options_sameorigin  # Allows template to embed in <iframe>
 @staff_required
 def preview_record_pdf(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
@@ -837,7 +835,6 @@ def preview_record_pdf(request, record_id):
     if not doc or not getattr(doc, 'file', None):
         return HttpResponse("No generated document found for this record.", status=404)
 
-    # Use doc.file.open() instead of doc.file.path to support remote/cloud storage
     try:
         with doc.file.open('rb') as f:
             file_bytes = f.read()
@@ -846,13 +843,13 @@ def preview_record_pdf(request, record_id):
 
     filename = os.path.basename(doc.file.name)
 
-    # 1. Stream directly if file is already a PDF
+    # Stream directly if file is already a PDF
     if doc.file.name.lower().endswith('.pdf'):
         response = HttpResponse(file_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{filename}"'
         return response
 
-    # 2. Convert DOCX to PDF stream via LibreOffice helper
+    # Convert DOCX to PDF stream via LibreOffice helper
     try:
         pdf_bytes = convert_docx_bytes_to_pdf(file_bytes)
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
@@ -860,8 +857,6 @@ def preview_record_pdf(request, record_id):
         return response
     except Exception as e:
         return HttpResponse(f"PDF Conversion Failed: {str(e)}", status=500)
-
-
 
 
 @staff_required
@@ -944,7 +939,7 @@ def signed_preview(request, batch_id=None):
     else:
         records = StudentRecord.objects.select_related('batch').order_by('-id')
 
-    # Fix N+1 Query: Fetch all relevant documents in ONE query and map to record_id
+    # Map docs to record_id in one query to prevent N+1 overhead
     docs = GeneratedDocument.objects.filter(record__in=records).order_by('record_id', 'id')
     latest_doc_map = {doc.record_id: doc for doc in docs}
 
@@ -952,13 +947,11 @@ def signed_preview(request, batch_id=None):
     for r in records:
         doc = latest_doc_map.get(r.id)
 
-        # Safe student email extraction
         try:
             student_email = get_student_email(r)
         except Exception:
             student_email = ""
 
-        # Safe file readiness check (prevents crashes if file is missing from disk)
         has_signed = False
         if doc and getattr(doc, 'signed_file', None):
             try:
@@ -978,6 +971,7 @@ def signed_preview(request, batch_id=None):
         'selected_batch_id': str(selected_batch_id),
         'summary': record_summary,
     })
+
 
 @staff_required
 def send_signed_emails(request):
@@ -1173,6 +1167,7 @@ def lettertype_create(request):
             messages.success(request, f"Created letter type '{display_name}'.")
     return redirect('letters:lettertype_list')
 
+
 @staff_required
 def preview_record_docx(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
@@ -1184,9 +1179,9 @@ def preview_record_docx(request, record_id):
     try:
         with doc.file.open('rb') as f:
             file_bytes = f.read()
-        
+
         response = HttpResponse(
-            file_bytes, 
+            file_bytes,
             content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
         filename = os.path.basename(doc.file.name)
@@ -1194,6 +1189,7 @@ def preview_record_docx(request, record_id):
         return response
     except Exception as e:
         return HttpResponse(f"Unable to read file: {str(e)}", status=404)
+
 
 @staff_required
 def mapping_create(request):

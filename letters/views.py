@@ -312,14 +312,19 @@ def _parse_thai_date(date_str):
 
 
 def _get_semester_from_period(period_str, default='2026/1'):
+    """Derive an academic semester (e.g. '2568/3') from a period string.
+
+    Accepts either a bare range like '2 มิถุนายน - 25 กรกฎาคม 2568' (the actual
+    format used in the real data) or the same range wrapped in parentheses,
+    e.g. '(2 มิถุนายน - 25 กรกฎาคม 2568)' — parentheses are optional.
+    """
     if not period_str:
         return default
 
     range_match = re.search(r'\((.*?)\)', period_str)
-    if not range_match:
-        return default
+    range_text = range_match.group(1) if range_match else period_str
 
-    parts = range_match.group(1).split('-')
+    parts = range_text.split('-')
     if len(parts) != 2:
         return default
 

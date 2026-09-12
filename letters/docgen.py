@@ -67,7 +67,7 @@ H_COMPANY = (
     'หน่วยงาน'
 )
 H_CONTACT_PERSON = ('โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท)',)
-H_CONTACT_POSITION = ('ตำแหน่ง')
+H_CONTACT_POSITION = ('ตำแหน่ง',)
 H_DEPARTMENT = ('นักศึกษาเข้าฝึกงานในส่วนของฝ่ายงาน', )
 H_INTERN_POSITION = ('ตำแหน่งของการฝึกงาน')
 H_PERIOD = ('ช่วงเวลาของการฝึกงาน',)
@@ -439,7 +439,7 @@ def _student_table(doc, rows):
 
 def _signature_block(doc):
     """สร้างส่วนลงนามท้ายเอกสาร"""
-    _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=4, space_after=36)
+    _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=4, space_after=40)
     _para(doc, DEAN_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
     _para(doc, DEAN_TITLE_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
     _para(doc, UNIV_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)

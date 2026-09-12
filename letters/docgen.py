@@ -360,7 +360,7 @@ def _base_doc():
     
     style = doc.styles['Normal']
     style.font.name = THAI_FONT
-    style.font.size = Pt(15)
+    style.font.size = Pt(14)
     return doc
 
 
@@ -391,7 +391,7 @@ def _ref_and_date(doc, ref_no):
     date_th = f"{today.day} {thai_months[today.month]} {thai_be_year}"
     
     _para(doc, f"ที่ อว 78.363 / {ref_no}", size=14, space_after=0, line_spacing=1.15)
-    _para(doc, f"วันที่ {date_th}", size=14, space_after=4, line_spacing=1.15)
+    _para(doc, f"วันที่ {date_th}", size=14, space_after=3, line_spacing=1.15)
 
 
 def _student_table(doc, rows):
@@ -482,7 +482,7 @@ def build_confirm_letter(row, ref_no="___"):
     _para(doc, "เรื่อง  ขอส่งนักศึกษาเข้าฝึกงาน", bold=True, size=14, space_after=3)
     _para(doc, f"เรียน  คุณ {contact_person}", size=14, space_after=0, line_spacing=1.15)
     _para(doc, f"       ตำแหน่ง {position}", size=14, space_after=0, line_spacing=1.15)
-    _para(doc, f"       บริษัท {company_name}", size=14, space_after=4, line_spacing=1.15)
+    _para(doc, f"       บริษัท {company_name}", size=14, space_after=3, line_spacing=1.15)
 
     body = (
         f"ตามที่ บริษัท {company_name} ได้แจ้งความประสงค์ยินดีที่จะรับนักศึกษา"
@@ -491,9 +491,9 @@ def build_confirm_letter(row, ref_no="___"):
         f"{course}\u00A0เพื่อเพิ่มพูนทักษะและนำความรู้ที่ได้ศึกษามาใช้ในการปฏิบัติงานจริง โดยมีระยะเวลาการฝึกงาน"
         f"ระหว่างวันที่ {period}"
     )
-    _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "ในการนี้ คณะฯ จึงใคร่ขอส่งนักศึกษาเข้ารับการฝึกงาน จำนวน 1 คน คือ",
-          align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+          align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
     _student_table(doc, [{
         'student_id': _get_val(r_dict, *H_STUDENT_ID) or getattr(row, 'student_id', ''),
@@ -507,7 +507,7 @@ def build_confirm_letter(row, ref_no="___"):
         "การฝึกงานนักศึกษา เพื่อนำข้อมูลไปพัฒนาปรับปรุงหลักสูตรของคณะฯ ต่อไป หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ"
         f"{COURSE_CONTACT_TH}"
     )
-    _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดทราบและขอขอบคุณมา ณ โอกาสนี้", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
     return doc
@@ -529,7 +529,7 @@ def build_request_letter(row, ref_no="___"):
     _para(doc, "เรื่อง  ขอความอนุเคราะห์รับนักศึกษาเข้าฝึกงาน", bold=True, size=14, space_after=3)
     _para(doc, f"เรียน  คุณ {contact_person}", size=14, space_after=0, line_spacing=1.15)
     _para(doc, "       ผู้จัดการ", size=14, space_after=0, line_spacing=1.15)
-    _para(doc, f"       บริษัท {company_name}", size=14, space_after=4, line_spacing=1.15)
+    _para(doc, f"       บริษัท {company_name}", size=14, space_after=3, line_spacing=1.15)
 
     body = (
         f"เนื่องด้วยนักศึกษาระดับปริญญาตรี หลักสูตรวิทยาศาสตรบัณฑิต สาขาวิชาวิทยาการและเทคโนโลยีดิจิทัล (DST) "
@@ -537,7 +537,7 @@ def build_request_letter(row, ref_no="___"):
         f"มีความประสงค์จะขอเข้ารับการฝึกงาน ณ บริษัท {company_name} "
         f"ซึ่งเป็นส่วนหนึ่งของรายวิชา\u00A0{course}\u00A0เพื่อเพิ่มพูนทักษะและนำความรู้ที่ได้ศึกษามาใช้ในการปฏิบัติงานจริง"
     )
-    _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
     body2 = (
         "ในการนี้ คณะฯ ได้พิจารณาแล้วเห็นว่าหน่วยงานของท่านสามารถสร้างองค์ความรู้และประสบการณ์"
@@ -545,7 +545,7 @@ def build_request_letter(row, ref_no="___"):
         f"รับนักศึกษาของคณะฯ เข้ารับการฝึกงาน โดยมีระยะเวลาการฝึกงานระหว่างวันที่ {period} "
         "จำนวน 1 คน คือ"
     )
-    _para(doc, body2, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, body2, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
     _student_table(doc, [{
         'student_id': _get_val(r_dict, *H_STUDENT_ID) or getattr(row, 'student_id', ''),
@@ -554,7 +554,7 @@ def build_request_letter(row, ref_no="___"):
     }])
 
     closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{COURSE_CONTACT_TH}"
-    _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดพิจารณาให้ความอนุเคราะห์ จะขอบคุณยิ่ง", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
     return doc
@@ -577,21 +577,21 @@ def build_extension_letter(row, ref_no="___"):
     _para(doc, "เรื่อง  ขอขยายระยะเวลาการฝึกงานของนักศึกษา", bold=True, size=14, space_after=3)
     _para(doc, f"เรียน  คุณ {contact_person}", size=14, space_after=0, line_spacing=1.15)
     _para(doc, f"       ตำแหน่ง {position}", size=14, space_after=0, line_spacing=1.15)
-    _para(doc, f"       บริษัท {company_name}", size=14, space_after=4, line_spacing=1.15)
+    _para(doc, f"       บริษัท {company_name}", size=14, space_after=3, line_spacing=1.15)
 
     body = (
         f"ตามที่ บริษัท {company_name} ได้ให้ความอนุเคราะห์รับนักศึกษาระดับปริญญาตรี หลักสูตรวิทยาศาสตรบัณฑิต "
         f"สาขาวิชาวิทยาการและเทคโนโลยีดิจิทัล (DST) ชั้นปีที่ {year_level} ของคณะเทคโนโลยีสารสนเทศและการสื่อสาร (ICT) "
         f"มหาวิทยาลัยมหิดล เข้ารับการฝึกงานในรายวิชา\u00A0{course}\u00A0นั้น"
     )
-    _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
     body2 = (
         f"เนื่องด้วยการปฏิบัติงานฝึกงานดังกล่าวจำเป็นต้องใช้ระยะเวลาในการดำเนินงานเพิ่มเติม เพื่อให้นักศึกษาได้เรียนรู้"
         f"และเพิ่มพูนทักษะการทำงานได้อย่างสมบูรณ์ คณะฯ จึงใคร่ขอความอนุเคราะห์จากท่านพิจารณาขยายระยะเวลาการฝึกงาน"
         f"ของนักศึกษาออกไป จนถึงวันที่ {period} จำนวน 1 คน คือ"
     )
-    _para(doc, body2, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, body2, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
     _student_table(doc, [{
         'student_id': _get_val(r_dict, *H_STUDENT_ID) or getattr(row, 'student_id', ''),
@@ -600,7 +600,7 @@ def build_extension_letter(row, ref_no="___"):
     }])
 
     closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{COURSE_CONTACT_TH}"
-    _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=4)
+    _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดพิจารณาให้ความอนุเคราะห์ จะขอบคุณยิ่ง", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
     return doc

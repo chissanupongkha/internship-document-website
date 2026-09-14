@@ -18,11 +18,12 @@ from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMessage
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.views.decorators.http import require_POST
 
 from .decorators import staff_required
 from .docgen import (
@@ -537,6 +538,25 @@ def preview(request, batch_id):
         'records': records,
         'counts': counts,
     })
+
+
+@staff_required
+@require_POST
+def update_semester(request, record_id):
+    """Inline-edit endpoint used by the preview table: lets staff override a
+    record's auto-detected semester (e.g. when it's ambiguous or wrong) without
+    leaving the preview page or opening the full record_detail view."""
+    record = get_object_or_404(StudentRecord, id=record_id)
+    new_semester = request.POST.get('semester', '').strip()
+
+    if not new_semester:
+        return JsonResponse({'ok': False, 'error': 'Semester cannot be empty.'}, status=400)
+
+    record.semester = new_semester
+    record.save(update_fields=['semester'])
+    log_activity(request, 'EDIT_RECORD', f"Manually set semester to '{new_semester}' for record #{record.id} ({record.display_name})")
+
+    return JsonResponse({'ok': True, 'semester': record.semester})
 
 
 @staff_required

@@ -39,6 +39,6 @@ urlpatterns = [
     
     path('record/<int:record_id>/preview-pdf/', views.preview_record_pdf, name='preview_record_pdf'),
     path('record/<int:record_id>/preview-docx/', views.preview_record_docx, name='preview_record_docx'),
-    path('results/<int:run_id>/', views.download, name='download'),
+    path('record/<int:record_id>/update-semester/', views.update_semester, name='update_semester'),
 
 ]

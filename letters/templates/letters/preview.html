@@ -88,7 +88,18 @@
     
             <td class="py-4 px-3 text-gray-800" title="{{ r.internship_position }}">{{ r.internship_position|default:"—" }}</td>
             <td class="py-4 px-3 text-gray-800" title="{{ r.course_id }}">{{ r.course_id|default:"—" }}</td>
-            <td class="py-4 px-3 text-gray-800 whitespace-nowrap">{{ r.semester|default:"—" }}</td>
+            <td class="py-4 px-3 text-gray-800 whitespace-nowrap">
+              <input
+                type="text"
+                class="semester-input w-20 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#3F7A62]"
+                data-record-id="{{ r.id }}"
+                data-original-value="{{ r.semester|default:'' }}"
+                value="{{ r.semester|default:'' }}"
+                placeholder="—"
+                onchange="saveSemester(this)"
+              >
+              <span class="semester-status text-xs ml-1"></span>
+            </td>
             <td class="py-4 px-3 text-center text-gray-800">{{ r.times }}</td>
             <td class="py-4 px-3 text-gray-800" title="{{ r.period }}">{{ r.period|default:"—" }}</td>
             <td class="py-4 px-3 whitespace-nowrap text-gray-800">{{ r.letter_type }}</td>
@@ -202,6 +213,44 @@ function submitFormWithFormat(format) {
   document.getElementById('downloadFormat').value = format;
   document.getElementById('generateForm').submit();
   closeDownloadModal();
+}
+
+function saveSemester(input) {
+  const recordId = input.dataset.recordId;
+  const newValue = input.value.trim();
+  const statusEl = input.nextElementSibling;
+  const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+
+  statusEl.textContent = 'Saving...';
+  statusEl.className = 'semester-status text-xs ml-1 text-gray-400';
+
+  fetch(`/record/${recordId}/update-semester/`, {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': csrfToken,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `semester=${encodeURIComponent(newValue)}`,
+  })
+    .then(res => res.json().then(data => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      if (ok && data.ok) {
+        input.dataset.originalValue = data.semester;
+        statusEl.textContent = '✓ Saved';
+        statusEl.className = 'semester-status text-xs ml-1 text-[#3F7A62]';
+      } else {
+        input.value = input.dataset.originalValue;
+        statusEl.textContent = data.error || 'Failed';
+        statusEl.className = 'semester-status text-xs ml-1 text-[#AD4B3D]';
+      }
+      setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    })
+    .catch(() => {
+      input.value = input.dataset.originalValue;
+      statusEl.textContent = 'Network error';
+      statusEl.className = 'semester-status text-xs ml-1 text-[#AD4B3D]';
+      setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    });
 }
 
 // Initial check on load

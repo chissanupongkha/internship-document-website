@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 docgen.py
-สร้างเอกสารหนังสือขอความอนุเคราะห์และหนังสือส่งตัวฝึกงาน (.docx) จากข้อมูลในแต่ละแถว
+สร้างเอกสารหนังสือขอความอนุเคราะห์และหนังสือส่งตัวฝึกงาน (.docx / .pdf) จากข้อมูลในแต่ละแถว
 โดยจำลองเค้าโครงและรูปแบบของเอกสารทางการของ คณะ ICT มหาวิทยาลัยมหิดล:
   - Confirm_Letter_V1        -> ใช้สำหรับ "หนังสือส่งตัวนักศึกษาฝึกงาน"
   - Request_Intern_Letter_V1 -> ใช้สำหรับ "หนังสือขอความอนุเคราะห์รับนักศึกษาฝึกงาน"
+  - Extension_Letter         -> ใช้สำหรับ "หนังสือขอขยายระยะเวลาฝึกงาน"
 
 มาตรฐานฟอนต์: TH Sarabun New 14pt
 ระยะย่อหน้า: 1 แท็บ (1.27 ซม.)
 """
 import io
+import logging
 import os
 import re
 import shutil
@@ -19,20 +21,27 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+from django.conf import settings
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from docx2pdf import convert
 from docxtpl import DocxTemplate
-from django.conf import settings
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from docx.oxml import OxmlElement
 
-FONT_PATH = os.path.join(settings.BASE_DIR, 'letters', 'static', 'fonts', 'THSarabunNew.ttf')
-pdfmetrics.registerFont(TTFont("THSarabun", FONT_PATH))
+logger = logging.getLogger(__name__)
+
+try:
+    FONT_PATH = os.path.join(settings.BASE_DIR, 'letters', 'static', 'fonts', 'THSarabunNew.ttf')
+    if os.path.exists(FONT_PATH):
+        pdfmetrics.registerFont(TTFont("THSarabun", FONT_PATH))
+except Exception as e:
+    logger.warning("Could not register THSarabun TTFont: %s", e)
+
 LOGO_PATH = os.path.join(os.path.dirname(__file__), 'static', 'letters', 'images', 'mu_logo.jpeg')
 
 FACULTY_TH = "คณะเทคโนโลยีสารสนเทศและการสื่อสาร"
@@ -69,10 +78,9 @@ H_COMPANY = (
 H_CONTACT_PERSON = ('โดยทำหนังสือถึงคุณ (สอบถามผู้ติดต่อฝั่งบริษัท)',)
 H_CONTACT_POSITION = ('ตำแหน่ง',)
 H_DEPARTMENT = ('นักศึกษาเข้าฝึกงานในส่วนของฝ่ายงาน', )
-H_INTERN_POSITION = ('ตำแหน่งของการฝึกงาน')
+H_INTERN_POSITION = ('ตำแหน่งของการฝึกงาน',)
 H_PERIOD = ('ช่วงเวลาของการฝึกงาน',)
 
-# จับคู่ประเภทหนังสือภายใน docgen ('confirm'/'request') ไปยังค่าของ LetterTemplate.letter_type ('confirmation'/'request')
 KIND_TO_TEMPLATE_TYPE = {'confirm': 'confirmation', 'request': 'request', 'extension': 'extension'}
 
 SUPPORTED_LETTER_TYPES = {
@@ -86,7 +94,6 @@ SUPPORTED_LETTER_TYPES = {
     "ขอขยายระยะเวลาการฝึกงานของนักศึกษา": "extension",
 }
 
-# ฟิลด์ข้อมูลทั้งหมดที่สามารถใช้ใน Custom Template (Jinja2)
 AVAILABLE_SOURCE_FIELDS = [
     ('ref_no', 'เลขที่หนังสือ (เช่น อว 78.363 / 001)'),
     ('date_th', 'วันที่ปัจจุบัน (รูปแบบภาษาไทย)'),
@@ -115,12 +122,70 @@ AVAILABLE_SOURCE_FIELDS = [
 ]
 
 
+def normalize_letter_type(raw_val):
+    if not raw_val:
+        return "request"
+
+    val_str = str(raw_val).strip()
+    if val_str in SUPPORTED_LETTER_TYPES:
+        return SUPPORTED_LETTER_TYPES[val_str]
+
+    val_lower = val_str.lower()
+    if any(k in val_lower for k in ['referral', 'confirm', 'ส่งตัว', 'dispatch']):
+        return "confirm"
+    if any(k in val_lower for k in ['request', 'placement', 'ขอความอนุเคราะห์', 'อนุเคราะห์']):
+        return "request"
+    if any(k in val_lower for k in ['extension', 'ขยายระยะเวลา', 'ขยาย']):
+        return "extension"
+
+    return val_str
+
+
+def resolve_letter_type(raw_val):
+    raw = str(raw_val or '').strip()
+    if raw:
+        try:
+            from .models import LetterTypeMapping
+            m = LetterTypeMapping.objects.select_related('letter_type').filter(raw_text=raw).first()
+            if m:
+                return m.letter_type.slug
+        except Exception:
+            logger.exception("LetterTypeMapping lookup failed")
+    return normalize_letter_type(raw)
+
+
+TAB_INDENT_CM = 1.27
+FONT_CANDIDATES = ["TH Sarabun New"]
+
+
+def _available_font_families():
+    try:
+        result = subprocess.run(
+            ["fc-list", ":family"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    except Exception:
+        return set()
+
+
+def _resolve_thai_font():
+    families = _available_font_families()
+    if not families:
+        return FONT_CANDIDATES[0]
+    for candidate in FONT_CANDIDATES:
+        if any(candidate in fam for fam in families):
+            return candidate
+    return FONT_CANDIDATES[0]
+
+
+THAI_FONT = _resolve_thai_font()
+
+_families = _available_font_families()
+PDF_SAFE_FONT = "Sarabun" if any(fam.split(':')[0] == "Sarabun" for fam in _families) else THAI_FONT
+
+
 def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Document:
-    """
-    Forces TH Sarabun New + th-TH language tags across all document elements
-    (paragraphs, tables, headers, footers, SDTs, styles) and removes Word Theme font
-    overrides that trigger broken Thai character rendering in PDF engines.
-    """
     theme_attrs = ["asciiTheme", "cstheme", "hAnsiTheme", "eastAsiaTheme"]
 
     xml_roots = [doc._element]
@@ -132,7 +197,6 @@ def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Doc
             if container and getattr(container, "_element", None) is not None:
                 xml_roots.append(container._element)
 
-    # 1. Target every single <w:r> across all XML document trees
     for root in xml_roots:
         for r in root.xpath('.//w:r'):
             rPr = r.find(qn('w:rPr'))
@@ -145,19 +209,16 @@ def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Doc
                 rFonts = OxmlElement('w:rFonts')
                 rPr.append(rFonts)
 
-            # Strip Theme Attributes
             for attr in theme_attrs:
                 key = qn(f"w:{attr}")
                 if key in rFonts.attrib:
                     del rFonts.attrib[key]
 
-            # Assign explicit font family across all script engines
             rFonts.set(qn("w:ascii"), font_name)
             rFonts.set(qn("w:hAnsi"), font_name)
             rFonts.set(qn("w:cs"), font_name)
             rFonts.set(qn("w:eastAsia"), font_name)
 
-            # Force Thai Language & Bidi tagging
             lang = rPr.find(qn("w:lang"))
             if lang is None:
                 lang = OxmlElement("w:lang")
@@ -166,7 +227,6 @@ def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Doc
             lang.set(qn("w:bidi"), "th-TH")
             lang.set(qn("w:eastAsia"), "th-TH")
 
-    # 2. Update styles.xml and default document fonts
     try:
         styles_root = doc.styles.element
         for rFonts in styles_root.xpath('.//w:rFonts'):
@@ -184,8 +244,32 @@ def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Doc
     return doc
 
 
+def extract_fields_from_docx(file_or_path_or_bytes):
+    if isinstance(file_or_path_or_bytes, bytes):
+        file_obj = io.BytesIO(file_or_path_or_bytes)
+    elif isinstance(file_or_path_or_bytes, (str, Path)):
+        file_obj = str(file_or_path_or_bytes)
+    elif hasattr(file_or_path_or_bytes, 'read'):
+        content = file_or_path_or_bytes.read()
+        if hasattr(file_or_path_or_bytes, 'seek'):
+            file_or_path_or_bytes.seek(0)
+        file_obj = io.BytesIO(content)
+    else:
+        file_obj = file_or_path_or_bytes
+
+    try:
+        doc = DocxTemplate(file_obj)
+        try:
+            vars_set = doc.get_undeclared_variables()
+        except AttributeError:
+            vars_set = doc.get_undeclared_template_variables()
+        return {'template_variables': sorted(list(vars_set))}
+    except Exception as e:
+        logger.exception("Error extracting fields from docx template: %s", e)
+        return {'template_variables': []}
+
+
 def _get_libreoffice_bin():
-    """ค้นหาไฟล์ Executable ของ LibreOffice บน Linux, macOS หรือ Windows"""
     soffice_bin = shutil.which("soffice") or shutil.which("libreoffice")
     if not soffice_bin:
         mac_path = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
@@ -198,7 +282,6 @@ def _get_libreoffice_bin():
 
 
 def _get_val(row, *keys):
-    """ดึงข้อมูลและทำความสะอาดข้อความจาก dict ของข้อมูล โดยลองใช้ คีย์ ตามลำดับ"""
     for key in keys:
         if isinstance(keys[0], (list, tuple)) and not isinstance(key, str):
             for sub_k in key:
@@ -233,70 +316,7 @@ def _get_val(row, *keys):
     return ''
 
 
-def normalize_letter_type(raw_val):
-    """แปลงข้อความประเภทหนังสือให้อยู่ในรูปแบบมาตรฐาน (confirm, request, extension)"""
-    if not raw_val:
-        return "request"
-
-    val_str = str(raw_val).strip()
-    if val_str in SUPPORTED_LETTER_TYPES:
-        return SUPPORTED_LETTER_TYPES[val_str]
-
-    val_lower = val_str.lower()
-    if any(k in val_lower for k in ['referral', 'confirm', 'ส่งตัว', 'dispatch']):
-        return "confirm"
-    if any(k in val_lower for k in ['request', 'placement', 'ขอความอนุเคราะห์', 'อนุเคราะห์']):
-        return "request"
-    if any(k in val_lower for k in ['extension', 'ขยายระยะเวลา', 'ขยาย']):
-        return "extension"
-
-    return val_str
-
-
-TAB_INDENT_CM = 1.27
-FONT_CANDIDATES = ["TH Sarabun New"]
-
-
-def _available_font_families():
-    """คืนค่ารายการชื่อฟอนต์ที่ติดตั้งอยู่ในระบบผ่าน fc-list"""
-    try:
-        result = subprocess.run(
-            ["fc-list", ":family"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
-    except Exception:
-        return set()
-
-
-def _resolve_thai_font():
-    """เลือกฟอนต์ภาษาไทยแรกที่พบจาก FONT_CANDIDATES หากไม่พบจะใช้ TH Sarabun New เป็นค่าเริ่มต้น"""
-    families = _available_font_families()
-    if not families:
-        return FONT_CANDIDATES[0]
-    for candidate in FONT_CANDIDATES:
-        if any(candidate in fam for fam in families):
-            return candidate
-    return FONT_CANDIDATES[0]
-
-
-THAI_FONT = _resolve_thai_font()
-
-# TH Sarabun New is the visually "correct"/expected font for these official
-# letters, but it appears to trigger a LibreOffice-specific PDF export bug:
-# documents render perfectly on-screen in Writer, but headless PDF export
-# corrupts complex-script glyph shaping (distinct Thai syllables collapse
-# into repeated wrong characters). This happens even with an isolated
-# LibreOffice profile, which rules out profile/cache corruption as the cause.
-# Sarabun (the Google Fonts rebuild) is visually very close but doesn't share
-# TH Sarabun New's legacy OpenType tables, so it sidesteps the bug. Used only
-# for the PDF-bound document — DOCX output is unaffected and keeps THAI_FONT.
-_families = _available_font_families()
-PDF_SAFE_FONT = "Sarabun" if any(fam.split(':')[0] == "Sarabun" for fam in _families) else THAI_FONT
-
-
 def _set_font(run, size=14, bold=False, color=None, name=None):
-    """กำหนดรูปแบบฟอนต์พร้อมคุณสมบัติ Complex Script (CS) สำหรับข้อความภาษาไทย"""
     if name is None:
         name = THAI_FONT
     run.font.size = Pt(size)
@@ -332,8 +352,7 @@ def _set_font(run, size=14, bold=False, color=None, name=None):
 
 
 def _para(doc, text="", align=WD_ALIGN_PARAGRAPH.LEFT, size=14, bold=False,
-          space_after=3, space_before=0, line_spacing=1, indent_first=None):
-    """สร้างย่อหน้าใหม่พร้อมตั้งค่ารูปแบบและฟอนต์ (ปรับ line_spacing เป็น 1.2 เพื่อป้องกันวรรณยุกต์ซ้อนโดนตัด)"""
+          space_after=3, space_before=0, line_spacing=1.2, indent_first=None):
     p = doc.add_paragraph()
     p.alignment = align
     p.paragraph_format.space_after = Pt(space_after)
@@ -348,7 +367,6 @@ def _para(doc, text="", align=WD_ALIGN_PARAGRAPH.LEFT, size=14, bold=False,
 
 
 def _base_doc():
-    """สร้างโครงสร้างเอกสาร Word พื้นฐาน พร้อมตั้งค่าระยะขอบกระดาษ"""
     doc = Document()
     section = doc.sections[0]
     section.page_height = Cm(29.7)
@@ -365,7 +383,6 @@ def _base_doc():
 
 
 def _letterhead(doc, faculty_name):
-    """สร้างส่วนหัวกระดาษของคณะและมหาวิทยาลัย"""
     if os.path.exists(LOGO_PATH):
         p_logo = doc.add_paragraph()
         p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -383,7 +400,6 @@ def _letterhead(doc, faculty_name):
 
 
 def _ref_and_date(doc, ref_no):
-    """สร้างส่วนเลขที่หนังสือและวันที่ (รูปแบบ พ.ศ.)"""
     today = datetime.now()
     thai_be_year = today.year + 543
     thai_months = ["", "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
@@ -395,7 +411,6 @@ def _ref_and_date(doc, ref_no):
 
 
 def _student_table(doc, rows):
-    """สร้างตารางแสดงรายชื่อนักศึกษา"""
     table = doc.add_table(rows=1, cols=4)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = 'Table Grid'
@@ -438,7 +453,6 @@ def _student_table(doc, rows):
 
 
 def _signature_block(doc):
-    """สร้างส่วนลงนามท้ายเอกสาร"""
     _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=4, space_after=40)
     _para(doc, DEAN_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
     _para(doc, DEAN_TITLE_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
@@ -446,7 +460,6 @@ def _signature_block(doc):
 
 
 def _full_name(row):
-    """ประกอบชื่อและนามสกุลเต็มของนักศึกษา"""
     if isinstance(row, dict):
         prefix = _get_val(row, *H_PREFIX)
         first_name = _get_val(row, *H_FIRST_NAME)
@@ -456,7 +469,6 @@ def _full_name(row):
 
 
 def _course_label(row):
-    """ดึงรหัสและชื่อรายวิชา"""
     if isinstance(row, dict):
         val = _get_val(row, *H_COURSE)
     else:
@@ -466,7 +478,6 @@ def _course_label(row):
 
 
 def build_confirm_letter(row, ref_no="___"):
-    """สร้างเอกสารหนังสือส่งตัวนักศึกษาเข้าฝึกงาน"""
     doc = _base_doc()
     _letterhead(doc, FACULTY_TH)
     _ref_and_date(doc, ref_no)
@@ -514,7 +525,6 @@ def build_confirm_letter(row, ref_no="___"):
 
 
 def build_request_letter(row, ref_no="___"):
-    """สร้างเอกสารหนังสือขอความอนุเคราะห์รับนักศึกษาเข้าฝึกงาน"""
     doc = _base_doc()
     _letterhead(doc, FACULTY_TH_ICT)
     _ref_and_date(doc, ref_no)
@@ -561,7 +571,6 @@ def build_request_letter(row, ref_no="___"):
 
 
 def build_extension_letter(row, ref_no="___"):
-    """สร้างเอกสารหนังสือขอขยายระยะเวลาการฝึกงานของนักศึกษา"""
     doc = _base_doc()
     _letterhead(doc, FACULTY_TH_ICT)
     _ref_and_date(doc, ref_no)
@@ -607,7 +616,10 @@ def build_extension_letter(row, ref_no="___"):
 
 
 def _build_template_context(row_or_record, kind, ref_no="___"):
-    """สร้าง Context Data สำหรับการนำไปใส่ใน Template docxtpl"""
+    """
+    Builds context dictionary for Jinja2 template rendering.
+    Combines pre-defined system fields and automatically merges all raw uploaded Excel/CSV columns.
+    """
     r_dict = row_or_record if isinstance(row_or_record, dict) else (getattr(row_or_record, 'data', {}) or {})
 
     today = datetime.now()
@@ -623,7 +635,7 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
     company = _get_val(r_dict, *H_COMPANY) or getattr(row_or_record, 'company', '')
     course = _course_label(r_dict)
 
-    return {
+    context = {
         'ref_no': f"อว 78.363 / {ref_no}",
         'date_th': date_th,
         'faculty_name': FACULTY_TH if kind == "confirm" else FACULTY_TH_ICT,
@@ -653,21 +665,59 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
         'excel': r_dict,
     }
 
+    # Automatically merge all custom raw uploaded columns from Excel/CSV
+    if isinstance(r_dict, dict):
+        for raw_k, raw_v in r_dict.items():
+            if raw_k and raw_k not in context and raw_v is not None:
+                context[raw_k] = str(raw_v).strip()
+
+    return context
+
+
+def missing_placeholders(mappings, base_context):
+    """Placeholders of a template that cannot be filled for one record."""
+    missing = []
+    for m in mappings:
+        if m.source_type == m.SOURCE_UNMAPPED:
+            missing.append(m.placeholder)
+        elif m.source_type == m.SOURCE_FIELD:
+            val = base_context.get(m.source_value)
+            if not str(val or '').strip():
+                missing.append(m.placeholder)
+    return missing
+
 
 def _resolve_mapped_context(row_or_record, kind, ref_no, mappings):
-    """สร้าง Context โดยอ้างอิงตามค่า Field Mapping ที่ตั้งค่าไว้"""
+    """Resolves mapped context, including new user-defined Excel variables like 'nickname'."""
     base_context = _build_template_context(row_or_record, kind, ref_no)
     context = {}
+    r_dict = row_or_record if isinstance(row_or_record, dict) else (getattr(row_or_record, 'data', {}) or {})
+
     for mapping in mappings:
         if mapping.source_type == mapping.SOURCE_STATIC:
             context[mapping.placeholder] = mapping.source_value
         elif mapping.source_type == mapping.SOURCE_FIELD:
-            context[mapping.placeholder] = base_context.get(mapping.source_value, '')
+            mapped_key = mapping.source_value.strip()
+
+            # 1. Look in base_context
+            val = base_context.get(mapped_key)
+
+            # 2. Direct lookup in raw Excel row dictionary
+            if val is None or not str(val).strip():
+                val = r_dict.get(mapped_key, '')
+
+            # 3. Case-insensitive fallback (e.g., 'nickname' matches 'Nickname' or 'NICKNAME' in Excel)
+            if not str(val or '').strip():
+                for excel_header, excel_val in r_dict.items():
+                    if str(excel_header).strip().lower() == mapped_key.lower():
+                        val = excel_val
+                        break
+
+            context[mapping.placeholder] = str(val or '').strip()
+
     return context
 
-
 def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
-    """ประมวลผลไฟล์ LetterTemplate รวมเข้ากับข้อมูล Context"""
     mappings = list(template_obj.field_mappings.all()) if hasattr(template_obj, 'field_mappings') else []
     if mappings:
         context = _resolve_mapped_context(row_or_record, kind, ref_no, mappings)
@@ -678,7 +728,6 @@ def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
     try:
         doc = DocxTemplate(template_obj.file)
         doc.render(context)
-        # Apply complex script Thai font fix to the rendered DocxTemplate
         apply_thai_font_fix(doc.docx, font_name=THAI_FONT)
     finally:
         template_obj.file.close()
@@ -690,30 +739,27 @@ def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
 
 
 def _try_user_template(row_or_record, kind, ref_no="___"):
-    """พยายามเรนเดอร์เอกสารจาก Custom Template ที่ผู้ใช้เคยอัปโหลดไว้ หากไม่มีจะคืนค่า None"""
     template_type = KIND_TO_TEMPLATE_TYPE.get(kind, kind)
     try:
         from .models import LetterTemplate
-        template_obj = LetterTemplate.objects.get(letter_type=template_type, is_active=True)
-    except Exception:
-        return None
-
-    try:
+        template_obj = LetterTemplate.objects.filter(letter_type=template_type, is_active=True).first()
+        if template_obj is None:
+            return None
         return render_with_template(template_obj, row_or_record, kind, ref_no)
     except Exception:
+        logger.exception("Template rendering failed")
         return None
 
 
-def generate_for_row(row, ref_no="___"):
-    """
-    สร้างเอกสาร Word Buffer สำหรับข้อมูลนักศึกษา 1 แถว
-    คืนค่าเป็น: (BytesIO_buffer, filename) เมื่อสำเร็จ หรือ (None, error_message) เมื่อล้มเหลว
-    """
-    raw_type = _get_val(row, *H_LETTER_TYPE) if isinstance(row, dict) else getattr(row, 'letter_type', '')
-    kind = normalize_letter_type(raw_type)
+def generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, force_builtin=False):
+    if kind_override:
+        kind = normalize_letter_type(kind_override)
+    else:
+        raw_type = _get_val(row, *H_LETTER_TYPE) if isinstance(row, dict) else getattr(row, 'letter_type', '')
+        kind = resolve_letter_type(raw_type)
 
     if not kind:
-        return None, f"ไม่พบหรือประเภทหนังสือไม่ถูกต้อง ('{raw_type}')"
+        return None, f"ไม่พบหรือประเภทหนังสือไม่ถูกต้อง"
 
     r_dict = row if isinstance(row, dict) else (getattr(row, 'data', {}) or {})
     student_id = _get_val(r_dict, *H_STUDENT_ID) or getattr(row, 'student_id', '')
@@ -722,73 +768,40 @@ def generate_for_row(row, ref_no="___"):
     student_name = _full_name(row)
     safe_name = student_name.strip().replace(' ', '_') or "student"
 
-    custom_buf = _try_user_template(row, kind, ref_no)
+    if template_obj is not None:
+        try:
+            custom_buf = render_with_template(template_obj, row, kind, ref_no)
+        except Exception as e:
+            logger.exception("Template #%s failed to render", template_obj.id)
+            return None, f"Template '{template_obj.name}' failed to render: {e}"
+    elif force_builtin:
+        custom_buf = None
+    else:
+        custom_buf = _try_user_template(row, kind, ref_no)
+
     if custom_buf:
         return custom_buf, f"{kind}_{safe_id}_{safe_name}.docx"
 
+    # Built-in layout fallback
     if kind == "confirm":
-        doc = build_confirm_letter(row, ref_no)
-    elif kind == "extension":
-        doc = build_extension_letter(row, ref_no)
+        doc = build_confirm_letter(row, ref_no=ref_no)
     elif kind == "request":
-        doc = build_request_letter(row, ref_no)
+        doc = build_request_letter(row, ref_no=ref_no)
+    elif kind == "extension":
+        doc = build_extension_letter(row, ref_no=ref_no)
     else:
-        return None, f"ไม่รองรับประเภทหนังสือ '{kind}'"
+        return None, f"ไม่รองรับประเภทหนังสือ: '{kind}'"
 
-    # Force Thai font properties and CTL language tags across the generated document
     apply_thai_font_fix(doc, font_name=THAI_FONT)
 
-    buf = BytesIO()
+    buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
-    return buf, f"{kind}_{safe_id}_{safe_name}.docx"
-
-
-def generate_letter_buffer(student_record, letter_type='request'):
-    """ฟังก์ชันช่วยสำหรับเรียกใช้งานใน Views ที่ต้องการรับเฉพาะไฟล์ Buffer"""
-    buf, _ = generate_for_row(student_record)
-    return buf
+    filename = f"{kind}_{safe_id}_{safe_name}.docx"
+    return buf, filename
 
 
 def convert_docx_bytes_to_pdf(docx_bytes: bytes) -> bytes:
-    """Converts DOCX binary data to PDF binary data using headless LibreOffice on Linux."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        input_docx_path = os.path.join(tmp_dir, "temp_doc.docx")
-        
-        # Write input DOCX to temp file
-        with open(input_docx_path, "wb") as f:
-            f.write(docx_bytes)
-
-        # Execute headless LibreOffice CLI conversion
-        command = [
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            tmp_dir,
-            input_docx_path,
-        ]
-        
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        
-        if result.returncode != 0:
-            raise RuntimeError(f"LibreOffice error: {result.stderr.decode('utf-8')}")
-
-        output_pdf_path = os.path.join(tmp_dir, "temp_doc.pdf")
-        if not os.path.exists(output_pdf_path):
-            raise FileNotFoundError("LibreOffice completed without throwing an error, but no PDF was generated.")
-
-        # Read converted PDF bytes
-        with open(output_pdf_path, "rb") as f:
-            return f.read()
-
-
-def convert_docx_to_pdf(docx_path: str, output_dir: str, timeout: int = 30) -> str:
-    """แปลงไฟล์ DOCX ตามที่อยู่ path ที่ระบุไปเป็น PDF"""
-    docx_path = Path(docx_path).resolve()
-    output_dir = Path(output_dir).resolve()
-
     soffice_bin = _get_libreoffice_bin()
     if not soffice_bin:
         raise RuntimeError("ไม่พบโปรแกรม LibreOffice ในระบบ")
@@ -797,157 +810,58 @@ def convert_docx_to_pdf(docx_path: str, output_dir: str, timeout: int = 30) -> s
     env["LANG"] = "th_TH.UTF-8"
     env["LC_ALL"] = "th_TH.UTF-8"
 
-    # Use a fresh, isolated LibreOffice profile for this conversion. Sharing the
-    # default profile with another running/stale LibreOffice instance can break
-    # Complex Text Layout shaping (which Thai needs) even though the same file
-    # renders correctly when opened normally in LibreOffice Writer.
-    with tempfile.TemporaryDirectory() as lo_profile_dir:
-        profile_uri = Path(lo_profile_dir).resolve().as_uri()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        input_docx_path = os.path.join(tmp_dir, "temp_doc.docx")
+        with open(input_docx_path, "wb") as f:
+            f.write(docx_bytes)
 
-        cmd = [
-            soffice_bin,
-            "--headless",
-            "--invisible",
-            "--nologo",
+        profile_uri = Path(os.path.join(tmp_dir, "lo_profile")).resolve().as_uri()
+        command = [
+            soffice_bin, "--headless", "--invisible", "--nologo", "--norestore",
             f"-env:UserInstallation={profile_uri}",
             "--convert-to", "pdf:writer_pdf_Export",
-            "--outdir", str(output_dir),
-            str(docx_path)
+            "--outdir", tmp_dir, input_docx_path,
         ]
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=env, timeout=60, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice error: {result.stderr.decode('utf-8', errors='ignore')}")
 
-        try:
-            subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                timeout=timeout,
-                check=True
-            )
-        except subprocess.TimeoutExpired:
-            raise TimeoutError(f"การแปลง PDF หมดเวลาหลังจาก {timeout} วินาที")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"การแปลง PDF ล้มเหลว: {e.stderr.decode('utf-8', errors='ignore')}")
+        output_pdf_path = os.path.join(tmp_dir, "temp_doc.pdf")
+        if not os.path.exists(output_pdf_path):
+            raise FileNotFoundError("LibreOffice finished but no PDF was generated.")
+        with open(output_pdf_path, "rb") as f:
+            return f.read()
 
-    pdf_path = output_dir / f"{docx_path.stem}.pdf"
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"ไม่พบไฟล์ PDF ที่ปลายทาง {pdf_path}")
 
-    return str(pdf_path)
+def convert_docx_to_pdf(input_path_or_bytes, output_path=None):
+    if isinstance(input_path_or_bytes, (bytes, io.BytesIO)):
+        pdf_bytes = convert_docx_bytes_to_pdf(input_path_or_bytes)
+        if output_path:
+            with open(output_path, "wb") as f:
+                f.write(pdf_bytes)
+            return output_path
+        return pdf_bytes
+    else:
+        with open(input_path_or_bytes, "rb") as f:
+            docx_bytes = f.read()
+        pdf_bytes = convert_docx_bytes_to_pdf(docx_bytes)
+        if output_path:
+            with open(output_path, "wb") as f:
+                f.write(pdf_bytes)
+            return output_path
+        return pdf_bytes
 
 
 def generate_pdf_for_row(row, ref_no="___"):
-    """สร้างเอกสาร PDF จากข้อมูลนักศึกษา 1 แถว คืนค่าเป็น (pdf_buffer, filename)"""
-    res = generate_for_row(row, ref_no)
-    if not res or res[0] is None:
-        raise ValueError(f"การสร้างไฟล์ DOCX ล้มเหลว: {res[1] if res else 'ไม่ทราบสาเหตุ'}")
+    doc_buf, docx_filename = generate_for_row(row, ref_no=ref_no)
+    if not doc_buf:
+        return None, docx_filename
 
-    docx_buf, fname = res
-    pdf_fname = fname.rsplit('.', 1)[0] + '.pdf'
-
-    # Re-open the generated docx and swap font to PDF_SAFE_FONT
-    docx_buf.seek(0)
-    pdf_input_doc = Document(docx_buf)
-    apply_thai_font_fix(pdf_input_doc, font_name=PDF_SAFE_FONT)
-    pdf_input_buf = BytesIO()
-    pdf_input_doc.save(pdf_input_buf)
-    pdf_input_buf.seek(0)
-
-    soffice_bin = _get_libreoffice_bin()
-    if not soffice_bin:
-        raise RuntimeError("ไม่พบโปรแกรม LibreOffice ในระบบ (โปรดติดตั้ง LibreOffice เพื่อใช้ฟังก์ชันแปลง PDF)")
-
-    env = os.environ.copy()
-    env["LANG"] = "th_TH.UTF-8"
-    env["LC_ALL"] = "th_TH.UTF-8"
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_docx = os.path.join(tmpdir, "document.docx")
-
-        with open(input_docx, "wb") as f:
-            f.write(pdf_input_buf.getvalue())
-
-        lo_profile_dir = os.path.join(tmpdir, "lo_profile")
-        os.makedirs(lo_profile_dir, exist_ok=True)
-        profile_uri = Path(lo_profile_dir).resolve().as_uri()
-
-        cmd = [
-            soffice_bin,
-            "--headless",
-            "--invisible",
-            "--nologo",
-            "--norestore",
-            "--nofirststartwizard",
-            f"-env:UserInstallation={profile_uri}",
-            "--convert-to", "pdf:writer_pdf_Export",
-            "--outdir", tmpdir,
-            input_docx
-        ]
-
-        try:
-            # Enforce 25-second timeout so stalled processes fail gracefully instead of crashing Gunicorn
-            result = subprocess.run(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
-                env=env,
-                timeout=25
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"การแปลงไฟล์ PDF ล้มเหลว: {result.stderr.decode('utf-8', errors='ignore')}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("กระบวนการแปลง PDF หมดเวลา (Timeout) ก่อนจะเสร็จสิ้น")
-
-        output_pdf = os.path.join(tmpdir, "document.pdf")
-        if not os.path.exists(output_pdf):
-            raise FileNotFoundError(f"ไม่พบไฟล์ PDF ที่แปลงสำเร็จ Log: {result.stdout.decode('utf-8', errors='ignore')}")
-
-        pdf_buf = BytesIO()
-        with open(output_pdf, "rb") as f:
-            pdf_buf.write(f.read())
-        pdf_buf.seek(0)
-
-    return pdf_buf, pdf_fname
-
-
-def extract_fields_from_docx(file_obj):
-    """สกัดกวาดหาตัวแปร Jinja2 หรือข้อความฟิลด์ในไฟล์ docx"""
     try:
-        doc = DocxTemplate(file_obj)
-        vars_list = list(doc.get_undeclared_template_variables())
-        if vars_list:
-            return {'template_variables': vars_list}
-    except Exception:
-        pass
-
-    doc = Document(file_obj)
-    paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    fields = {'recipient_name': '', 'recipient_position': '', 'company': '',
-              'student_id': '', 'student_name': '', 'dept_position': '', 'period': ''}
-
-    for p in paras:
-        if p.startswith('เรียน'):
-            fields['recipient_name'] = p.replace('เรียน', '').replace('คุณ', '').strip()
-        elif p.startswith('ตำแหน่ง'):
-            fields['recipient_position'] = p.replace('ตำแหน่ง', '').strip()
-        elif p.startswith('บริษัท'):
-            fields['company'] = p.replace('บริษัท', '').strip()
-
-    if doc.tables:
-        table = doc.tables[0]
-        if len(table.rows) > 1:
-            cells = [c.text.strip() for c in table.rows[1].cells]
-            if len(cells) > 1:
-                fields['student_id'] = cells[1]
-            if len(cells) > 2:
-                fields['student_name'] = cells[2]
-            if len(cells) > 3:
-                fields['dept_position'] = cells[3]
-
-    for p in paras:
-        m = re.search(r'ระหว่างวันที่\s*(.+?)(?:\s*จำนวน|$)', p)
-        if m:
-            fields['period'] = m.group(1).strip()
-            break
-
-    return fields
+        pdf_bytes = convert_docx_bytes_to_pdf(doc_buf)
+        pdf_filename = os.path.splitext(docx_filename)[0] + ".pdf"
+        return io.BytesIO(pdf_bytes), pdf_filename
+    except Exception as e:
+        logger.exception("Failed to generate PDF for row")
+        return None, f"เกิดข้อผิดพลาดในการแปลงไฟล์ PDF: {str(e)}"

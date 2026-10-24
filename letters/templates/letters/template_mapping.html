@@ -1,0 +1,212 @@
+{% extends 'letters/base.html' %}
+{% block title %}Map template fields — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="w-full max-w-none px-1 sm:px-4">
+  <a href="{% url 'letters:template_list' %}" class="text-xs text-black hover:underline">← Back to templates</a>
+
+  <div class="flex items-center gap-3 mt-2 mb-1">
+    <h1 class="text-xl font-semibold">Map template fields</h1>
+    {% if template.is_active %}
+      <span class="inline-flex items-center rounded-full bg-[#E1EEE6] text-[#3F7A62] px-3 py-1 text-xs font-semibold">Active</span>
+    {% else %}
+      <span class="inline-flex items-center rounded-full bg-[#F6E7D2] text-[#B4772A] px-3 py-1 text-xs font-semibold">Not active</span>
+    {% endif %}
+  </div>
+  <p class="text-sm text-gray-500 mb-1">
+    {{ template.name }} · type <span class="font-mono">{{ template.letter_type }}</span>
+  </p>
+  <p class="text-sm text-gray-500 mb-5">
+    Map placeholders to built-in fields, existing Excel headers, or type a new variable name (e.g. <code>nickname</code>).
+  </p>
+
+  <form id="mappingForm" action="{% url 'letters:template_mapping' template.id %}" method="post">
+    {% csrf_token %}
+
+    <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-x-auto">
+      <table class="w-full text-sm text-left border-collapse">
+        <thead>
+          <tr class="bg-[#FBF9F4] text-xs uppercase tracking-wider text-gray-500 border-b border-[#E1DACB]">
+            <th class="py-3 px-4 w-1/4">Placeholder in Word</th>
+            <th class="py-3 px-4 w-1/5">Source Type</th>
+            <th class="py-3 px-4">Excel Column / Custom Value</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#E1DACB]">
+          {% for m in mappings %}
+          <tr class="mapping-row align-top" data-placeholder="{{ m.placeholder }}">
+            <td class="py-3 px-4">
+              <code class="font-mono text-xs bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-1">{% templatetag openvariable %} {{ m.placeholder }} {% templatetag closevariable %}</code>
+              <span class="auto-badge hidden ml-2 text-[10px] text-[#3F7A62] font-semibold bg-[#E1EEE6] px-2 py-0.5 rounded-full">auto-matched</span>
+            </td>
+
+            <td class="py-3 px-4">
+              <select name="source_type_{{ m.id }}"
+                      class="type-select border border-gray-300 rounded px-2 py-1.5 text-sm bg-white w-full">
+                <option value="unmapped" {% if m.source_type == 'unmapped' %}selected{% endif %}>— Not mapped —</option>
+                <option value="field" {% if m.source_type == 'field' %}selected{% endif %}>Excel Column / Data Field</option>
+                <option value="static" {% if m.source_type == 'static' %}selected{% endif %}>Static Fixed Text</option>
+              </select>
+            </td>
+
+            <td class="py-3 px-4">
+              <!-- Field Dropdown Selection -->
+              <select name="source_value_{{ m.id }}"
+                      class="field-select border border-gray-300 rounded px-2 py-1.5 text-sm bg-white w-full max-w-xl {% if m.source_type != 'field' %}hidden{% endif %}"
+                      {% if m.source_type != 'field' %}disabled{% endif %}
+                      onchange="toggleCustomInput(this, '{{ m.id }}')">
+                <option value="">Select or create field variable…</option>
+                <option value="__custom__" class="font-semibold text-[#3F7A62]">+ Create new custom Excel column variable…</option>
+
+                <optgroup label="System Standard Fields">
+                  {% for key, label in standard_fields %}
+                    <option value="{{ key }}" {% if m.source_type == 'field' and m.source_value == key %}selected{% endif %}>
+                      {{ label }} ({{ key }})
+                    </option>
+                  {% endfor %}
+                </optgroup>
+
+                {% if custom_fields %}
+                <optgroup label="Uploaded Excel Headers">
+                  {% for key, label in custom_fields %}
+                    <option value="{{ key }}" {% if m.source_type == 'field' and m.source_value == key %}selected{% endif %}>
+                      [Excel] {{ label }}
+                    </option>
+                  {% endfor %}
+                </optgroup>
+                {% endif %}
+              </select>
+
+              <!-- Custom Excel Column Name Input (e.g. nickname) -->
+              <div id="custom_container_{{ m.id }}" class="mt-2 {% if m.source_type == 'field' and m.source_value and m.source_value != '__custom__' %}hidden{% endif %}">
+                <input type="text"
+                       name="custom_value_{{ m.id }}"
+                       id="custom_input_{{ m.id }}"
+                       value="{% if m.source_type == 'field' %}{{ m.source_value }}{% endif %}"
+                       placeholder="Type exact Excel column name (e.g. nickname)"
+                       class="border border-gray-300 rounded px-3 py-1.5 text-sm w-full max-w-xl focus:ring-1 focus:ring-[#3F7A62]">
+                <span class="block text-[11px] text-gray-400 mt-0.5">Will read from Excel column with this name (e.g. <code>nickname</code>)</span>
+              </div>
+
+              <!-- Static Fixed Text Input -->
+              <input type="text" name="source_value_{{ m.id }}"
+                     value="{% if m.source_type == 'static' %}{{ m.source_value }}{% endif %}"
+                     placeholder="Type fixed text to print in letter (e.g. Room 404)"
+                     class="static-input border border-gray-300 rounded px-2 py-1.5 text-sm w-full max-w-xl {% if m.source_type != 'static' %}hidden{% endif %}"
+                     {% if m.source_type != 'static' %}disabled{% endif %}>
+
+              <span class="unmapped-note text-xs text-gray-400 italic {% if m.source_type != 'unmapped' %}hidden{% endif %}">Select a source type first</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-5 flex flex-wrap items-center gap-3">
+      <button type="submit"
+              class="bg-ink text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#004D4D] shadow-sm">
+        Save mapping
+      </button>
+
+      <a href="{% url 'letters:template_preview' template.id %}" target="_blank"
+         class="bg-white border border-[#E1DACB] text-black text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#FBF9F4]">
+        Preview PDF
+      </a>
+
+      {% if not template.is_active %}
+      <button type="submit" form="activateForm"
+              class="bg-[#3F7A62] text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#32624e] shadow-sm">
+        Activate template
+      </button>
+      {% endif %}
+
+      <span class="text-xs text-gray-500 ml-auto"><span id="mappedCount">0</span> of <span id="totalCount">0</span> placeholders mapped</span>
+    </div>
+  </form>
+
+  <form id="activateForm" action="{% url 'letters:template_activate' template.id %}" method="post">
+    {% csrf_token %}
+  </form>
+</div>
+
+<script>
+function syncRow(row) {
+  const type = row.querySelector('.type-select').value;
+  const fieldSel = row.querySelector('.field-select');
+  const staticIn = row.querySelector('.static-input');
+  const customBox = row.querySelector('[id^="custom_container_"]');
+  const note = row.querySelector('.unmapped-note');
+
+  const isField = (type === 'field');
+  const isStatic = (type === 'static');
+
+  fieldSel.classList.toggle('hidden', !isField);
+  fieldSel.disabled = !isField;
+
+  staticIn.classList.toggle('hidden', !isStatic);
+  staticIn.disabled = !isStatic;
+
+  if (isField) {
+    const isCustom = fieldSel.value === '__custom__' || !fieldSel.value || !Array.from(fieldSel.options).some(o => o.value === fieldSel.value && o.value !== '__custom__');
+    customBox.classList.toggle('hidden', !isCustom);
+  } else {
+    customBox.classList.add('hidden');
+  }
+
+  note.classList.toggle('hidden', type !== 'unmapped');
+}
+
+function toggleCustomInput(selectEl, id) {
+  const customBox = document.getElementById('custom_container_' + id);
+  const customIn = document.getElementById('custom_input_' + id);
+  if (selectEl.value === '__custom__') {
+    customBox.classList.remove('hidden');
+    customIn.focus();
+  } else if (selectEl.value) {
+    customBox.classList.add('hidden');
+    customIn.value = selectEl.value;
+  }
+}
+
+function updateCount() {
+  const rows = document.querySelectorAll('.mapping-row');
+  let mapped = 0;
+  rows.forEach(r => { if (r.querySelector('.type-select').value !== 'unmapped') mapped++; });
+  document.getElementById('mappedCount').textContent = mapped;
+  document.getElementById('totalCount').textContent = rows.length;
+}
+
+function normalizeKey(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.mapping-row').forEach(row => {
+    const typeSel = row.querySelector('.type-select');
+    const fieldSel = row.querySelector('.field-select');
+    const customIn = row.querySelector('[id^="custom_input_"]');
+    const rawPlaceholder = row.dataset.placeholder || '';
+    const normPlaceholder = normalizeKey(rawPlaceholder);
+
+    if (typeSel.value === 'unmapped' && normPlaceholder) {
+      // Auto-match placeholder name (e.g. nickname) to dropdown or prefill custom input
+      const match = Array.from(fieldSel.options).find(o => o.value && normalizeKey(o.value) === normPlaceholder);
+      
+      typeSel.value = 'field';
+      if (match) {
+        fieldSel.value = match.value;
+      } else {
+        fieldSel.value = '__custom__';
+        if (customIn) customIn.value = rawPlaceholder;
+      }
+      const badge = row.querySelector('.auto-badge');
+      if (badge) badge.classList.remove('hidden');
+    }
+
+    syncRow(row);
+    typeSel.addEventListener('change', () => { syncRow(row); updateCount(); });
+  });
+  updateCount();
+});
+</script>
+{% endblock %}

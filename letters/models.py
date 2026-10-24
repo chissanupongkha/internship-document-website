@@ -53,21 +53,14 @@ class StudentRecord(models.Model):
 
 
 class LetterTemplate(models.Model):
-    TEMPLATE_TYPES = [
-        ('request', 'Internship Request Letter'),
-        ('confirm', 'Internship Confirmation/Referral Letter'),
-        ('extension', 'Internship Extension Letter'),
-    ]
-
     name = models.CharField(max_length=150)
-    letter_type = models.CharField(max_length=50, choices=TEMPLATE_TYPES, unique=True)
+    letter_type = models.CharField(max_length=50, unique=True)
     file = models.FileField(upload_to='letter_templates/')
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} ({self.get_letter_type_display()})"
-
+        return f"{self.name} ({self.letter_type})"
 
 class LetterType(models.Model):
     slug = models.SlugField(max_length=50, unique=True)

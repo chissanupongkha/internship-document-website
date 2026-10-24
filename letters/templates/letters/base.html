@@ -65,10 +65,13 @@
         Upload Signed Papers
       </a>
 
-      <!-- 4. Audit Logs (Staff Only) -->
-      {% if user.is_authenticated %}
-   
       
+      <a href="{% url 'letters:template_list' %}" class="py-2.5 border-b-2 {% if 'templates' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">Templates</a>
+      <a href="{% url 'letters:lettertype_list' %}" class="py-2.5 border-b-2 {% if 'letter-types' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">Letter Types</a>
+
+      {% if user.is_authenticated %}
+      
+   
       
      {% endif %}
     </div>

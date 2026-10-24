@@ -42,14 +42,17 @@ from .docgen import (
     H_YEAR,
     PDF_SAFE_FONT,
     SUPPORTED_LETTER_TYPES,
+    _build_template_context,
     _get_libreoffice_bin,
     apply_thai_font_fix,
     convert_docx_bytes_to_pdf,
     extract_fields_from_docx,
     generate_for_row,
     generate_pdf_for_row,
+    missing_placeholders,
     normalize_letter_type,
     render_with_template,
+    resolve_letter_type,
 )
 from .models import (
     AuditLog,
@@ -106,6 +109,8 @@ THAI_MONTHS = {
     'ตุลาคม': 10, 'ต.ค': 10, 'พฤศจิกายน': 11, 'พ.ย': 11, 'ธันวาคม': 12, 'ธ.ค': 12,
 }
 
+BUILTIN_KINDS = {'confirm', 'request', 'extension'}
+
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -120,10 +125,6 @@ def _pick(data, keys):
 
 
 def _field_ready(field):
-    """Whether a FileField/FieldFile actually has a stored file, checked in a way
-    that works regardless of storage backend (local filesystem, S3, etc). Using
-    field.path + os.path.exists only works for filesystem storage and raises
-    NotImplementedError on backends (e.g. S3) that don't support absolute paths."""
     if not field:
         return False
     try:
@@ -313,12 +314,6 @@ def _parse_thai_date(date_str):
 
 
 def _get_semester_from_period(period_str, default='2026/1'):
-    """Derive an academic semester (e.g. '2568/3') from a period string.
-
-    Accepts either a bare range like '2 มิถุนายน - 25 กรกฎาคม 2568' (the actual
-    format used in the real data) or the same range wrapped in parentheses,
-    e.g. '(2 มิถุนายน - 25 กรกฎาคม 2568)' — parentheses are optional.
-    """
     if not period_str:
         return default
 
@@ -366,6 +361,17 @@ def _check_year_eligibility(record):
         return None
 
     return int(digits) not in allowed
+
+
+def _chosen_template(request, record, templates_by_id):
+    """-> (template_obj, force_builtin). No choice submitted = automatic (active template)."""
+    key = f'template_{record.id}'
+    if key not in request.POST:
+        return None, False
+    val = request.POST.get(key, '').strip()
+    if not val:
+        return None, True
+    return templates_by_id.get(val), False
 
 
 # ==========================================
@@ -524,28 +530,46 @@ def upload(request):
 def preview(request, batch_id):
     batch = get_object_or_404(UploadedBatch, id=batch_id)
     records = list(batch.records.all())
-    for r in records:
-        r.supported = r.letter_type.strip() in SUPPORTED_LETTER_TYPES
-        r.missing = [f for f in IMPORTANT_FIELDS if not getattr(r, f).strip()]
-        r.year_flag = _check_year_eligibility(r)
 
+    # Fetch ALL templates (active & inactive) so staff can preview any option
+    templates = list(LetterTemplate.objects.prefetch_related('field_mappings').order_by('letter_type', 'name'))
+    for t in templates:
+        t.mapping_list = list(t.field_mappings.all())
+    active_by_type = {t.letter_type: t for t in templates if t.is_active}
+
+    fit_data = {}
     counts = {}
     for r in records:
+        kind = resolve_letter_type(r.letter_type)
+        base = _build_template_context(r, kind)
+
+        r.default_template_id = active_by_type[kind].id if kind in active_by_type else ''
+        r.missing = [f for f in IMPORTANT_FIELDS if not getattr(r, f).strip()]
+        r.year_flag = _check_year_eligibility(r)
+        builtin_ok = bool(r.letter_type.strip()) and kind in BUILTIN_KINDS
+        r.supported = builtin_ok or kind in active_by_type
+
+        clean_type = r.letter_type.strip() if r.letter_type else ""
+        r.builtin_label = f"{clean_type} (built-in)" if clean_type else "Built-in layout"
+
+        # Calculate missing placeholders for built-in and EVERY template
+        fit_data[r.id] = {
+            'builtin': {'supported': builtin_ok, 'missing': r.missing},
+            'templates': {t.id: missing_placeholders(t.mapping_list, base) for t in templates},
+        }
         counts[r.letter_type] = counts.get(r.letter_type, 0) + 1
 
     return render(request, 'letters/preview.html', {
         'batch': batch,
         'records': records,
         'counts': counts,
+        'templates': templates,
+        'fit_data': fit_data,
     })
-
 
 @staff_required
 @require_POST
 def update_semester(request, record_id):
-    """Inline-edit endpoint used by the preview table: lets staff override a
-    record's auto-detected semester (e.g. when it's ambiguous or wrong) without
-    leaving the preview page or opening the full record_detail view."""
     record = get_object_or_404(StudentRecord, id=record_id)
     new_semester = request.POST.get('semester', '').strip()
 
@@ -699,33 +723,38 @@ def generate(request, batch_id):
             return redirect("letters:preview", batch_id=batch_id)
 
         records = StudentRecord.objects.filter(id__in=selected_ids, batch=batch)
+        templates_by_id = {str(t.id): t for t in LetterTemplate.objects.all()}
+
         zip_buffer = io.BytesIO()
         added_count = 0
         errors = []
 
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             if fmt == "docx":
-                # DOCX generation is purely in-memory and fast
                 for record in records:
                     try:
-                        buf, filename = generate_for_row(record.data, ref_no="___")
+                        tobj, fb = _chosen_template(request, record, templates_by_id)
+                        buf, filename = generate_for_row(record.data, ref_no="___", template_obj=tobj, force_builtin=fb)
                         if buf:
                             zf.writestr(filename, buf.getvalue())
                             added_count += 1
+                        else:
+                            errors.append(f"Record #{record.id}: {filename}")
                     except Exception as e:
                         errors.append(f"Record #{record.id}: {str(e)}")
             else:
-                # PDF Format: Single-pass batch conversion to prevent worker timeout/OOM
                 with tempfile.TemporaryDirectory() as tmpdir:
-                    file_map = {}  # doc_filename -> (zip_output_filename, generated_pdf_path)
+                    file_map = {}
                     docx_paths = []
 
-                    # 1. Generate and save all modified DOCX files to tmpdir
                     for record in records:
                         try:
                             ref = str(record.student_id or record.id or "___")
-                            res = generate_for_row(record.data, ref_no=ref)
+                            tobj, fb = _chosen_template(request, record, templates_by_id)
+                            res = generate_for_row(record.data, ref_no=ref, template_obj=tobj, force_builtin=fb)
                             if not res or res[0] is None:
+                                err_msg = res[1] if res else "Unknown error"
+                                errors.append(f"Record #{record.id}: {err_msg}")
                                 continue
 
                             docx_buf, orig_fname = res
@@ -747,7 +776,6 @@ def generate(request, batch_id):
                         except Exception as e:
                             errors.append(f"Record #{record.id}: {str(e)}")
 
-                    # 2. Batch-convert ALL documents in ONE LibreOffice process
                     if docx_paths:
                         soffice_bin = _get_libreoffice_bin()
                         if not soffice_bin:
@@ -774,7 +802,7 @@ def generate(request, batch_id):
                             "pdf:writer_pdf_Export",
                             "--outdir",
                             tmpdir,
-                            *docx_paths,  # Pass all file paths at once
+                            *docx_paths,
                         ]
 
                         try:
@@ -788,7 +816,6 @@ def generate(request, batch_id):
                         except subprocess.TimeoutExpired:
                             logger.error("Batch LibreOffice conversion timed out.")
 
-                    # 3. Read converted PDFs into the ZIP archive
                     for doc_filename, (out_zip_fname, target_pdf_path) in file_map.items():
                         if os.path.exists(target_pdf_path):
                             with open(target_pdf_path, "rb") as f:
@@ -831,9 +858,6 @@ def download(request, run_id):
 
 @staff_required
 def results(request, run_id):
-    """Show a summary of a completed generation run (GenerationBatch), listing
-    every document produced and whether it succeeded, with a link to download
-    the whole run as a zip via the `download` view above."""
     gen_batch = get_object_or_404(GenerationBatch, id=run_id)
     documents = gen_batch.documents.select_related('record').order_by('id')
 
@@ -872,7 +896,7 @@ def download_record_pdf(request, record_id):
     return response
 
 
-@xframe_options_sameorigin  # Allows template to embed in <iframe>
+@xframe_options_sameorigin
 @staff_required
 def preview_record_pdf(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
@@ -889,13 +913,11 @@ def preview_record_pdf(request, record_id):
 
     filename = os.path.basename(doc.file.name)
 
-    # Stream directly if file is already a PDF
     if doc.file.name.lower().endswith('.pdf'):
         response = HttpResponse(file_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{filename}"'
         return response
 
-    # Convert DOCX to PDF stream via LibreOffice helper
     try:
         pdf_bytes = convert_docx_bytes_to_pdf(file_bytes)
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
@@ -985,7 +1007,6 @@ def signed_preview(request, batch_id=None):
     else:
         records = StudentRecord.objects.select_related('batch').order_by('-id')
 
-    # Map docs to record_id in one query to prevent N+1 overhead
     docs = GeneratedDocument.objects.filter(record__in=records).order_by('record_id', 'id')
     latest_doc_map = {doc.record_id: doc for doc in docs}
 
@@ -1259,18 +1280,52 @@ def template_mapping(request, template_id):
 
     if request.method == 'POST':
         for mapping in mappings:
-            mapping.source_type = request.POST.get(f'source_type_{mapping.id}', TemplateFieldMapping.SOURCE_UNMAPPED)
-            mapping.source_value = request.POST.get(f'source_value_{mapping.id}', '').strip()
+            src_type = request.POST.get(f'source_type_{mapping.id}', TemplateFieldMapping.SOURCE_UNMAPPED)
+            src_val = request.POST.get(f'source_value_{mapping.id}', '').strip()
+            custom_val = request.POST.get(f'custom_value_{mapping.id}', '').strip()
+
+            mapping.source_type = src_type
+
+            if src_type == TemplateFieldMapping.SOURCE_FIELD:
+                # Use typed custom column name (e.g. 'nickname') if '__custom__' or text is provided
+                if src_val == '__custom__' or custom_val:
+                    mapping.source_value = custom_val
+                else:
+                    mapping.source_value = src_val
+            elif src_type == TemplateFieldMapping.SOURCE_STATIC:
+                mapping.source_value = src_val
+            else:
+                mapping.source_value = ''
+
             mapping.save()
+
         log_activity(request, 'MAP_TEMPLATE_FIELDS', f"Updated mapping for template #{template_obj.id}")
         messages.success(request, "Field mapping saved.")
         return redirect('letters:template_mapping', template_id=template_obj.id)
 
+    # Scan existing records to extract uploaded Excel header columns
+    dynamic_columns = set()
+    recent_records = StudentRecord.objects.order_by('-id')[:100]
+    for rec in recent_records:
+        if rec.data and isinstance(rec.data, dict):
+            for k in rec.data.keys():
+                if k and not k.startswith('Unnamed') and k.lower() not in EXCLUDE_KEYS:
+                    dynamic_columns.add(k)
+
+    standard_keys = {item[0] for item in AVAILABLE_SOURCE_FIELDS}
+    standard_fields = AVAILABLE_SOURCE_FIELDS
+
+    custom_fields = [
+        (col, col) for col in sorted(dynamic_columns) if col not in standard_keys
+    ]
+
     return render(request, 'letters/template_mapping.html', {
         'template': template_obj,
         'mappings': mappings,
-        'available_fields': AVAILABLE_SOURCE_FIELDS,
+        'standard_fields': standard_fields,
+        'custom_fields': custom_fields,
     })
+
 
 
 @staff_required
@@ -1304,4 +1359,53 @@ def template_activate(request, template_id):
     template_obj.save()
     log_activity(request, 'ACTIVATE_TEMPLATE', f"Activated template #{template_obj.id} for '{template_obj.letter_type}'")
     messages.success(request, f"'{template_obj.name}' is now active for '{template_obj.letter_type}'.")
+    return redirect('letters:template_list')
+
+# Add these views to letters/views.py
+
+@staff_required
+def lettertype_delete(request, type_id):
+    if request.method == 'POST':
+        letter_type = get_object_or_404(LetterType, id=type_id)
+        name = letter_type.display_name
+        letter_type.delete()
+        log_activity(request, 'DELETE_LETTER_TYPE', f"Deleted letter type '{name}'")
+        messages.success(request, f"Deleted letter type '{name}'.")
+    return redirect('letters:lettertype_list')
+
+
+@staff_required
+def mapping_update(request, mapping_id):
+    if request.method == 'POST':
+        mapping = get_object_or_404(LetterTypeMapping, id=mapping_id)
+        new_type_id = request.POST.get('letter_type_id')
+        if new_type_id:
+            new_type = get_object_or_404(LetterType, id=new_type_id)
+            old_name = mapping.letter_type.display_name
+            mapping.letter_type = new_type
+            mapping.save()
+            log_activity(request, 'UPDATE_TYPE_MAPPING', f"Reassigned '{mapping.raw_text}' from '{old_name}' to '{new_type.display_name}'")
+            messages.success(request, f"Reassigned '{mapping.raw_text}' to '{new_type.display_name}'.")
+    return redirect('letters:lettertype_list')
+
+
+@staff_required
+def mapping_delete(request, mapping_id):
+    if request.method == 'POST':
+        mapping = get_object_or_404(LetterTypeMapping, id=mapping_id)
+        raw_text = mapping.raw_text
+        mapping.delete()
+        log_activity(request, 'DELETE_TYPE_MAPPING', f"Deleted mapping for '{raw_text}'")
+        messages.success(request, f"Unmapped '{raw_text}'.")
+    return redirect('letters:lettertype_list')
+
+
+@staff_required
+def template_delete(request, template_id):
+    if request.method == 'POST':
+        template_obj = get_object_or_404(LetterTemplate, id=template_id)
+        name = template_obj.name
+        template_obj.delete()
+        log_activity(request, 'DELETE_TEMPLATE', f"Deleted template '{name}'")
+        messages.success(request, f"Deleted template '{name}'.")
     return redirect('letters:template_list')

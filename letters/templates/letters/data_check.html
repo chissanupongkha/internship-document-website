@@ -1,0 +1,101 @@
+{% extends 'letters/base.html' %}
+{% block title %}Data Check — Internship Letter Generator{% endblock %}
+{% block content %}
+{% include 'letters/_status_tabs.html' with active='check' %}
+
+<h1 class="text-xl font-semibold mb-1">Data check</h1>
+<p class="text-sm text-gray-500 mb-4">
+  Compares every request in an uploaded file with the student and subject lists, and checks that the form data is complete and readable.
+</p>
+
+{% if not has_roster %}
+<div class="rounded-md px-4 py-3 text-sm border bg-amber-50 text-amber-800 border-amber-200 mb-4">
+  The student and subject lists are empty, so requests are not compared with them (only the form data is checked).
+  Add <a href="{% url 'letters:subject_list' %}" class="underline font-medium">subjects</a> and
+  <a href="{% url 'letters:student_list' %}" class="underline font-medium">students</a> first.
+</div>
+{% endif %}
+
+<form method="get" class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Uploaded file (batch)</label>
+    <select name="batch_id" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white" onchange="this.form.submit()">
+      <option value="all" {% if batch_id == 'all' %}selected{% endif %}>All batches</option>
+      {% for b in batches %}
+      <option value="{{ b.id }}" {% if batch_id == b.id|stringformat:"s" %}selected{% endif %}>#{{ b.id }} — {{ b.file_name }} ({{ b.uploaded_at|date:"M d, H:i" }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Show</label>
+    <select name="show" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white" onchange="this.form.submit()">
+      <option value="issues" {% if show == 'issues' %}selected{% endif %}>Only rows with problems</option>
+      <option value="ok" {% if show == 'ok' %}selected{% endif %}>Only clean rows</option>
+      <option value="all" {% if show == 'all' %}selected{% endif %}>All rows</option>
+    </select>
+  </div>
+</form>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Requests checked</div><div class="text-2xl font-semibold">{{ total }}</div></div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">With errors</div><div class="text-2xl font-semibold text-red-600">{{ n_error }}</div></div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Warnings only</div><div class="text-2xl font-semibold text-amber-600">{{ n_warn }}</div></div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Clean</div><div class="text-2xl font-semibold text-[#3F7A62]">{{ n_ok }}</div></div>
+</div>
+
+{% if kind_summary %}
+<div class="flex flex-wrap gap-2 mb-4">
+  {% for code, label, n in kind_summary %}
+  <span class="text-[11px] bg-white border border-[#E1DACB] rounded-full px-3 py-1">{{ label }} <span class="font-semibold">{{ n }}</span></span>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="bg-white border border-[#E1DACB] rounded-xl overflow-x-auto shadow-sm">
+  <table class="w-full text-left text-xs">
+    <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
+      <tr>
+        <th class="p-3">Excel row</th><th class="p-3">Student</th><th class="p-3">Subject</th><th class="p-3">Result</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-[#E1DACB]">
+      {% for x in page %}
+      <tr class="align-top hover:bg-[#FBF9F4]/50">
+        <td class="p-3 font-mono text-gray-500">{{ x.record.row_index|add:2 }}</td>
+        <td class="p-3">
+          <a href="{% url 'letters:document_status' x.record.id %}" class="font-medium text-blue-700 hover:underline">{{ x.record.display_name|default:"(no name)" }}</a>
+          <div class="font-mono text-[10px] text-gray-400">{{ x.record.student_id|default:"(no ID)" }}</div>
+        </td>
+        <td class="p-3 text-gray-600">{{ x.record.course_id|default:"—" }}</td>
+        <td class="p-3">
+          {% if x.issues %}
+            <ul class="space-y-1">
+              {% for i in x.issues %}
+              <li class="flex items-start gap-2">
+                <span class="mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0 {% if i.level == 'error' %}bg-red-100 text-red-700{% else %}bg-amber-100 text-amber-800{% endif %}">{% if i.level == 'error' %}Error{% else %}Warning{% endif %}</span>
+                <span>{{ i.text }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700">OK</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="p-6 text-center text-gray-500">{% if total %}Nothing to show for this filter.{% else %}No requests uploaded yet.{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page.paginator.num_pages > 1 %}
+<div class="flex items-center justify-between mt-4 text-sm">
+  <span class="text-gray-500">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  <div class="flex gap-2">
+    {% if page.has_previous %}<a class="px-3 py-1.5 bg-white border border-[#E1DACB] rounded-lg hover:bg-[#FBF9F4]" href="?{{ querystring }}&page={{ page.previous_page_number }}">← Previous</a>{% endif %}
+    {% if page.has_next %}<a class="px-3 py-1.5 bg-white border border-[#E1DACB] rounded-lg hover:bg-[#FBF9F4]" href="?{{ querystring }}&page={{ page.next_page_number }}">Next →</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

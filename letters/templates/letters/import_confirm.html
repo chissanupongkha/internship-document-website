@@ -1,0 +1,66 @@
+{% extends 'letters/base.html' %}
+{% block title %}Check before importing — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+  <div class="rounded-xl border border-amber-300 bg-amber-50 p-5 mb-5">
+    <div class="flex items-start gap-3">
+      <div class="text-2xl leading-none">⚠️</div>
+      <div>
+        <h1 class="text-lg font-semibold text-amber-900">{{ title }}</h1>
+        <p class="text-sm text-amber-900 mt-1">
+          We found <strong>{{ n_problems }}</strong> problem(s) in <span class="font-mono">{{ file_name }}</span>.
+          <strong>Nothing has been saved yet.</strong> Are you sure you want to import this file?
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+    {% for label, value in summary %}
+    <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm">
+      <div class="text-[11px] uppercase text-gray-500">{{ label }}</div>
+      <div class="text-2xl font-semibold">{{ value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="bg-white border border-[#E1DACB] rounded-xl overflow-x-auto shadow-sm mb-5">
+    <table class="w-full text-left text-xs">
+      <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
+        <tr><th class="p-3">Where</th><th class="p-3">Who</th><th class="p-3">What happens</th><th class="p-3">Problem</th></tr>
+      </thead>
+      <tbody class="divide-y divide-[#E1DACB]">
+        {% for p in problems %}
+        <tr class="align-top">
+          <td class="p-3 font-mono text-gray-500 whitespace-nowrap">{{ p.where }}</td>
+          <td class="p-3 whitespace-nowrap">{{ p.who }}</td>
+          <td class="p-3 whitespace-nowrap">
+            {% if p.level == 'skip' or p.level == 'error' %}
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700">{% if p.level == 'skip' %}Not imported{% else %}Error{% endif %}</span>
+            {% else %}
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">{% if p.level == 'warn' %}Check{% else %}Warning{% endif %}</span>
+            {% endif %}
+          </td>
+          <td class="p-3">{{ p.text }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if more %}<div class="p-3 text-xs text-gray-500 border-t border-[#E1DACB]">…and {{ more }} more problem(s) not shown.</div>{% endif %}
+  </div>
+
+  <form method="post" action="{{ action_url }}" class="flex flex-wrap items-center gap-3">
+    {% csrf_token %}
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit" name="action" value="cancel"
+            class="bg-white border border-[#E1DACB] text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#FBF9F4]">
+      Cancel — I will fix the file
+    </button>
+    <button type="submit" name="action" value="confirm"
+            class="bg-amber-600 text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-amber-700 shadow-sm">
+      Import anyway
+    </button>
+    <span class="text-xs text-gray-500">{{ confirm_note }}</span>
+  </form>
+</div>
+{% endblock %}

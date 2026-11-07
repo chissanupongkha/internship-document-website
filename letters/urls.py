@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import status_views
 
 app_name = 'letters'
 
@@ -54,4 +55,25 @@ urlpatterns = [
     path('letter-types/mapping/', views.mapping_create, name='mapping_create'),
     path('mappings/<int:mapping_id>/update/', views.mapping_update, name='mapping_update'),
     path('mappings/<int:mapping_id>/delete/', views.mapping_delete, name='mapping_delete'),
+    path('save-email-message/', views.save_email_message, name='save_email_message'),
+    
+    # --- add to letters/urls.py -------------------------------------------------
+# (keep your existing imports; add this one)
+
+
+# --- add inside urlpatterns = [ ... ] ---------------------------------------
+    # Request status, students, subjects
+    path('status/', status_views.request_status, name='request_status'),
+    path('request/<int:record_id>/status/', status_views.document_status, name='document_status'),
+    path('subjects/', status_views.subject_list, name='subject_list'),
+    path('subjects/save/', status_views.subject_save, name='subject_save'),
+    path('subjects/<int:pk>/delete/', status_views.subject_delete, name='subject_delete'),
+    path('students/', status_views.student_list, name='student_list'),
+    path('students/new/', status_views.student_form, name='student_new'),
+    path('students/import/', status_views.student_import, name='student_import'),
+    path('students/<int:pk>/', status_views.student_detail, name='student_detail'),
+    path('students/<int:pk>/edit/', status_views.student_form, name='student_edit'),
+    path('students/<int:pk>/delete/', status_views.student_delete, name='student_delete'),
+    path('enrollments/<int:pk>/delete/', status_views.enrollment_delete, name='enrollment_delete'),
+
 ]

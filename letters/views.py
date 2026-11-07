@@ -56,6 +56,7 @@ from .docgen import (
 )
 from .models import (
     AuditLog,
+    EmailTemplate,
     GeneratedDocument,
     GenerationBatch,
     LetterTemplate,
@@ -445,28 +446,49 @@ def index(request):
 
 @staff_required
 def upload(request):
-    if request.method != 'POST' or 'datafile' not in request.FILES:
+    # status_views is imported here (not at the top) because it imports this module
+    from .status_views import _check_records, _drop_stash, _load_stash, _stash_upload
+
+    token = request.POST.get('token', '') if request.method == 'POST' else ''
+
+    if token:                                    # second step: answer to "are you sure?"
+        if request.POST.get('action') == 'cancel':
+            _drop_stash(request, token)
+            messages.info(request, "Upload cancelled. Nothing was saved.")
+            return redirect('letters:index')
+        f, info = _load_stash(request, token, 'requests')
+        if f is None:
+            messages.error(request, "The pending upload expired. Please choose the file again.")
+            return redirect('letters:index')
+        file_name = info['name']
+    elif request.method == 'POST' and 'datafile' in request.FILES:
+        f = request.FILES['datafile']
+        file_name = f.name
+    else:
         messages.error(request, "Please select a valid file to upload.")
         return redirect('letters:index')
 
-    f = request.FILES['datafile']
     try:
         df = _load_table(f)
     except Exception as e:
         messages.error(request, f"Failed to parse file: {e}")
+        if token:
+            _drop_stash(request, token)
         return redirect('letters:index')
 
-    batch = UploadedBatch.objects.create(file_name=f.name, uploaded_by=request.user)
     records = []
     in_memory_counts = {}
+    skipped_rows = []          # Excel row numbers that have no student ID
 
     for i, row in enumerate(df.to_dict(orient='records')):
         s_id_raw = _get_val(row, *H_STUDENT_ID)
         if not s_id_raw:
+            skipped_rows.append(i + 2)
             continue
 
         s_id = str(s_id_raw).replace('.0', '').strip()
         if not s_id:
+            skipped_rows.append(i + 2)
             continue
 
         l_type = _get_val(row, *H_LETTER_TYPE)
@@ -499,7 +521,7 @@ def upload(request):
         times_val = in_memory_counts[combo_key]
 
         records.append(StudentRecord(
-            batch=batch,
+            batch=None,                          # set once the upload is accepted
             row_index=i,
             student_id=s_id,
             display_name=full_name,
@@ -516,14 +538,61 @@ def upload(request):
             data=row,
         ))
 
-    if records:
-        StudentRecord.objects.bulk_create(records)
-        messages.success(request, f"Successfully uploaded and extracted {len(records)} record(s).")
-        return redirect('letters:preview', batch_id=batch.id)
+    if not records:
+        if token:
+            _drop_stash(request, token)
+        messages.error(request, "No valid student records found. Please check column header names.")
+        return redirect('letters:index')
 
-    batch.delete()
-    messages.error(request, "No valid student records found. Please check column header names.")
-    return redirect('letters:index')
+    # ---- first step: check the data and ask before saving anything ----
+    if not token:
+        checked = _check_records(records)
+        flagged = [x for x in checked if x['issues']]
+        if flagged or skipped_rows:
+            problems = []
+            for n in skipped_rows:
+                problems.append({'where': f"Excel row {n}", 'level': 'skip', 'who': '(no student ID)',
+                                 'text': "Student ID is empty - row is not uploaded"})
+            for x in flagged:
+                r = x['record']
+                for i in x['issues']:
+                    problems.append({'where': f"Excel row {r.row_index + 2}", 'level': i['level'],
+                                     'who': f"{r.student_id} {r.display_name}".strip(), 'text': i['text']})
+            n_err = sum(1 for x in flagged if x['worst'] == 'error')
+            n_warn = sum(1 for x in flagged if x['worst'] == 'warn')
+            token = _stash_upload(request, f, 'requests')
+            return render(request, 'letters/import_confirm.html', {
+                'title': 'Check the request file before uploading',
+                'n_problems': len(problems),
+                'file_name': file_name,
+                'token': token,
+                'action_url': reverse('letters:upload'),
+                'summary': [
+                    ('Rows in file', len(df)),
+                    ('Rows without problems', len(records) - len(flagged)),
+                    ('Rows with errors', n_err),
+                    ('Rows with warnings only', n_warn),
+                    ('Problems found', len(problems)),
+                ],
+                'problems': problems[:200],
+                'more': max(0, len(problems) - 200),
+                'confirm_note': ("“Upload anyway” saves every row that has a student ID, exactly as in the file. "
+                                 "The problems stay listed on the Data Check page so you can correct them there."),
+            })
+
+    # ---- save ----
+    batch = UploadedBatch.objects.create(file_name=file_name, uploaded_by=request.user)
+    for r in records:
+        r.batch = batch
+    StudentRecord.objects.bulk_create(records)
+    if token:
+        _drop_stash(request, token)
+    messages.success(request, f"Successfully uploaded and extracted {len(records)} record(s).")
+    if skipped_rows:
+        shown = ", ".join(str(n) for n in skipped_rows[:10])
+        more = f" (+{len(skipped_rows) - 10} more)" if len(skipped_rows) > 10 else ""
+        messages.warning(request, f"{len(skipped_rows)} row(s) were skipped because the student ID is empty (Excel row {shown}{more}).")
+    return redirect('letters:preview', batch_id=batch.id)
 
 
 @staff_required
@@ -902,29 +971,47 @@ def preview_record_pdf(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
     doc = GeneratedDocument.objects.filter(record=record).last()
 
-    if not doc or not getattr(doc, 'file', None):
-        return HttpResponse("No generated document found for this record.", status=404)
-
-    try:
-        with doc.file.open('rb') as f:
-            file_bytes = f.read()
-    except Exception as e:
-        return HttpResponse(f"Unable to read file from storage: {str(e)}", status=404)
-
-    filename = os.path.basename(doc.file.name)
-
-    if doc.file.name.lower().endswith('.pdf'):
-        response = HttpResponse(file_bytes, content_type='application/pdf')
-        response['Content-Disposition'] = f'inline; filename="{filename}"'
+    # 1) signed PDF, if uploaded
+    if doc and _field_ready(doc.signed_file):
+        try:
+            with doc.signed_file.open('rb') as f:
+                data = f.read()
+        except Exception as e:
+            return HttpResponse(f"Unable to read signed file from storage: {e}", status=404)
+        response = HttpResponse(data, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{os.path.basename(doc.signed_file.name)}"'
         return response
 
-    try:
-        pdf_bytes = convert_docx_bytes_to_pdf(file_bytes)
+    # 2) generated file, if saved
+    if doc and _field_ready(doc.file):
+        try:
+            with doc.file.open('rb') as f:
+                file_bytes = f.read()
+        except Exception as e:
+            return HttpResponse(f"Unable to read file from storage: {e}", status=404)
+
+        if doc.file.name.lower().endswith('.pdf'):
+            pdf_bytes = file_bytes
+        else:
+            try:
+                pdf_bytes = convert_docx_bytes_to_pdf(file_bytes)
+            except Exception as e:
+                return HttpResponse(f"PDF Conversion Failed: {e}", status=500)
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="student_{record.student_id}.pdf"'
         return response
+
+    # 3) nothing saved yet: generate on the fly
+    ref_no = doc.ref_no if (doc and doc.ref_no) else str(2600 + record.row_index)
+    try:
+        pdf_buf, _name = generate_pdf_for_row(record.data, ref_no=ref_no)
     except Exception as e:
-        return HttpResponse(f"PDF Conversion Failed: {str(e)}", status=500)
+        return HttpResponse(f"Unable to generate preview: {e}", status=500)
+    if not pdf_buf:
+        return HttpResponse("No generated document found for this record.", status=404)
+    response = HttpResponse(pdf_buf.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="student_{record.student_id}.pdf"'
+    return response
 
 
 @staff_required
@@ -1007,6 +1094,8 @@ def signed_preview(request, batch_id=None):
     else:
         records = StudentRecord.objects.select_related('batch').order_by('-id')
 
+    saved_email = EmailTemplate.load()
+
     docs = GeneratedDocument.objects.filter(record__in=records).order_by('record_id', 'id')
     latest_doc_map = {doc.record_id: doc for doc in docs}
 
@@ -1037,7 +1126,45 @@ def signed_preview(request, batch_id=None):
         'batches': batches,
         'selected_batch_id': str(selected_batch_id),
         'summary': record_summary,
+        'saved_email': saved_email,
+        'default_email_subject': EmailTemplate.DEFAULT_SUBJECT,
+        'default_email_body': EmailTemplate.DEFAULT_BODY,
     })
+
+
+def _fill_placeholders(text, record, staff_name, staff_email):
+    """Replace {name}, {student_id}, {company}, {staff_name}, {staff_email}.
+    Plain str.replace is used so a stray '{' typed by staff cannot crash it."""
+    values = {
+        '{name}': record.display_name or '',
+        '{student_id}': record.student_id or '',
+        '{company}': record.company or '',
+        '{staff_name}': staff_name,
+        '{staff_email}': staff_email,
+    }
+    for k, v in values.items():
+        text = text.replace(k, str(v))
+    return text
+
+
+@staff_required
+@require_POST
+def save_email_message(request):
+    batch_id = request.POST.get('batch_id', 'all')
+    subject = ' '.join(request.POST.get('email_subject', '').splitlines()).strip()
+    body = request.POST.get('email_body', '').replace('\r\n', '\n').strip()
+
+    if not subject or not body:
+        messages.error(request, "Subject and message cannot be empty.")
+    else:
+        tpl = EmailTemplate.load()
+        tpl.subject = subject
+        tpl.body = body
+        tpl.updated_by = request.user
+        tpl.save()
+        log_activity(request, 'EDIT_EMAIL_MESSAGE', "Saved the signed-letter email message")
+        messages.success(request, "Email message saved. It will be used for all future sends.")
+    return redirect(f"{reverse('letters:signed_preview')}?batch_id={batch_id}")
 
 
 @staff_required
@@ -1057,6 +1184,10 @@ def send_signed_emails(request):
     staff_email = request.user.email if request.user.email else settings.DEFAULT_FROM_EMAIL
     staff_name = request.user.get_full_name() or request.user.username
 
+    saved = EmailTemplate.load()
+    subject_tpl = request.POST.get('email_subject', '').strip() or saved.subject
+    body_tpl = request.POST.get('email_body', '').replace('\r\n', '\n').strip() or saved.body
+
     sent_count = 0
     failed = []
 
@@ -1065,16 +1196,9 @@ def send_signed_emails(request):
         doc = GeneratedDocument.objects.filter(record=r).last()
 
         if doc and _field_ready(doc.signed_file) and student_email:
-            subject = f"Signed Internship Letter & Draft - {r.display_name}"
-            body = (
-                f"Dear {r.display_name},\n\n"
-                f"Please find attached your official signed internship letter (PDF) "
-                f"and draft copy.\n\n"
-                f"Best regards,\n"
-                f"{staff_name}\n"
-                f"Faculty of ICT, Mahidol University\n"
-                f"Email: {staff_email}"
-            )
+            subject = _fill_placeholders(subject_tpl, r, staff_name, staff_email)
+            subject = ' '.join(subject.splitlines())   # header must be one line
+            body = _fill_placeholders(body_tpl, r, staff_name, staff_email)
 
             email = EmailMessage(
                 subject=subject,
@@ -1240,13 +1364,22 @@ def preview_record_docx(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
     doc = GeneratedDocument.objects.filter(record=record).last()
 
-    if not doc or not getattr(doc, 'file', None):
-        return HttpResponse("No generated document found for this record.", status=404)
+    if not doc or not _field_ready(doc.file):
+        # no generated Word file saved yet: build it now
+        ref_no = doc.ref_no if (doc and doc.ref_no) else str(2600 + record.row_index)
+        buf, fname = generate_for_row(record.data, ref_no=ref_no)
+        if not buf:
+            return HttpResponse("No generated document found for this record.", status=404)
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        response['Content-Disposition'] = f'inline; filename="{fname}"'
+        return response
 
     try:
         with doc.file.open('rb') as f:
             file_bytes = f.read()
-
         response = HttpResponse(
             file_bytes,
             content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'

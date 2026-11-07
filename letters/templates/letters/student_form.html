@@ -1,0 +1,83 @@
+{% extends 'letters/base.html' %}
+{% block title %}{% if student %}Edit student{% else %}Add student{% endif %} — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+  <a href="{% url 'letters:student_list' %}" class="text-xs text-black hover:underline">← Back to students</a>
+  <h1 class="text-xl font-semibold mt-2 mb-4">{% if student %}Edit {{ student.student_id }}{% else %}Add student{% endif %}</h1>
+
+  {% if errors %}
+  <div class="rounded-md px-4 py-3 text-sm border bg-red-50 text-red-800 border-red-200 mb-4">
+    <ul class="list-disc pl-5">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <form method="post" class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5">
+    {% csrf_token %}
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">Student information</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Student ID *</label>
+        <input type="text" name="student_id" required value="{{ form.student_id }}" maxlength="50"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-1 focus:ring-[#3F7A62]">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Name *</label>
+        <input type="text" name="display_name" required value="{{ form.display_name }}"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-[#3F7A62]">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Year</label>
+        <select name="year" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+          <option value="">—</option>
+          {% for y in "1234" %}<option value="{{ y }}" {% if form.year == y %}selected{% endif %}>Year {{ y }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+        <input type="email" name="email" value="{{ form.email }}"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-[#3F7A62]">
+      </div>
+    </div>
+
+    <h2 class="text-sm font-semibold text-gray-700 mb-1">Registered subjects</h2>
+    <p class="text-xs text-gray-500 mb-3">Choose the semester, then tick the subjects the student registered in that semester. Existing registrations are kept; remove them on the student page.</p>
+
+    <div class="mb-3 w-40">
+      <label class="block text-xs font-semibold text-gray-600 mb-1">Semester</label>
+      <input type="text" name="semester" value="{{ form.semester }}" placeholder="2568/1" maxlength="20"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-[#3F7A62]">
+    </div>
+
+    {% if courses %}
+    <input type="text" id="subjectFilter" placeholder="Filter subjects…" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm mb-2">
+    <div class="border border-[#E1DACB] rounded-lg max-h-64 overflow-y-auto divide-y divide-[#E1DACB]" id="subjectBox">
+      {% for c in courses %}
+      <label class="subject-item flex items-center gap-3 px-3 py-2 text-sm hover:bg-[#FBF9F4] cursor-pointer">
+        <input type="checkbox" name="courses" value="{{ c.id }}" {% if c.id in selected_courses %}checked{% endif %}>
+        <span class="font-mono font-semibold">{{ c.code }}</span>
+        <span class="text-gray-600">{{ c.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="rounded-md px-4 py-3 text-sm border bg-amber-50 text-amber-800 border-amber-200">
+      No subjects yet. <a href="{% url 'letters:subject_list' %}" class="underline">Add subjects first</a>.
+    </div>
+    {% endif %}
+
+    <div class="mt-6 flex items-center gap-3">
+      <button type="submit" class="bg-[#006C6C] text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#004D4D]">Save student</button>
+      <a href="{% url 'letters:student_list' %}" class="text-sm text-gray-600 hover:underline">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+document.getElementById('subjectFilter')?.addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('.subject-item').forEach(el => {
+    el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,14 @@
+<div class="flex items-center gap-2 mb-5 text-sm">
+  <a href="{% url 'letters:request_status' %}"
+     class="px-4 py-2 rounded-lg border {% if active == 'status' %}bg-[#006C6C] text-white border-[#006C6C]{% else %}bg-white text-gray-700 border-[#E1DACB] hover:bg-[#FBF9F4]{% endif %}">
+    Request Status
+  </a>
+  <a href="{% url 'letters:student_list' %}"
+     class="px-4 py-2 rounded-lg border {% if active == 'students' %}bg-[#006C6C] text-white border-[#006C6C]{% else %}bg-white text-gray-700 border-[#E1DACB] hover:bg-[#FBF9F4]{% endif %}">
+    Students
+  </a>
+  <a href="{% url 'letters:subject_list' %}"
+     class="px-4 py-2 rounded-lg border {% if active == 'subjects' %}bg-[#006C6C] text-white border-[#006C6C]{% else %}bg-white text-gray-700 border-[#E1DACB] hover:bg-[#FBF9F4]{% endif %}">
+    Subjects
+  </a>
+</div>

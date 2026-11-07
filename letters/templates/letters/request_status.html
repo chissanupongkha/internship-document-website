@@ -1,0 +1,133 @@
+{% extends 'letters/base.html' %}
+{% block title %}Request Status — Internship Letter Generator{% endblock %}
+{% block content %}
+{% include 'letters/_status_tabs.html' with active='status' %}
+
+<h1 class="text-xl font-semibold mb-1">Request status by subject</h1>
+<p class="text-sm text-gray-500 mb-4">
+  Shows which registered students have sent an internship request (Request, Confirm / Referral, Extension) and how far each letter has progressed.
+</p>
+
+{% if not has_roster %}
+<div class="rounded-md px-4 py-3 text-sm border bg-amber-50 text-amber-800 border-amber-200 mb-4">
+  No students are registered yet. Add <a href="{% url 'letters:subject_list' %}" class="underline font-medium">subjects</a>
+  and <a href="{% url 'letters:student_list' %}" class="underline font-medium">students</a> (or import a file) to see their request status here.
+</div>
+{% endif %}
+
+<!-- Filters -->
+<form method="get" class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 mb-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+  <div class="md:col-span-2">
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Search subject (code or name)</label>
+    <input type="text" name="q" value="{{ f.q }}" placeholder="e.g. ITCS499 or Internship"
+           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-[#3F7A62]">
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
+    <select name="subject" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+      <option value="">All subjects</option>
+      {% for c in courses %}<option value="{{ c.id }}" {% if f.subject == c.id|stringformat:"s" %}selected{% endif %}>{{ c.code }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Semester</label>
+    <select name="semester" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+      <option value="">All</option>
+      {% for s in semesters %}<option value="{{ s }}" {% if f.semester == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Student (ID or name)</label>
+    <input type="text" name="student" value="{{ f.student }}"
+           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-[#3F7A62]">
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Show</label>
+    <select name="state" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+      <option value="all" {% if f.state == 'all' %}selected{% endif %}>Everyone</option>
+      <option value="not_requested" {% if f.state == 'not_requested' %}selected{% endif %}>Not requested yet</option>
+      <option value="requested" {% if f.state == 'requested' %}selected{% endif %}>Requested</option>
+    </select>
+  </div>
+  <div class="md:col-span-6 flex gap-2">
+    <button type="submit" class="bg-[#006C6C] text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-[#004D4D]">Search</button>
+    <a href="{% url 'letters:request_status' %}" class="bg-white border border-[#E1DACB] text-sm font-semibold px-5 py-2 rounded-lg hover:bg-[#FBF9F4]">Clear</a>
+  </div>
+</form>
+
+<!-- Summary -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Registered</div><div class="text-2xl font-semibold">{{ total }}</div></div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Requested</div><div class="text-2xl font-semibold text-[#3F7A62]">{{ requested }}</div></div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Not requested</div><div class="text-2xl font-semibold text-red-600">{{ not_requested }}</div></div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Letter emailed</div><div class="text-2xl font-semibold text-blue-700">{{ emailed }}</div></div>
+</div>
+
+<!-- Table -->
+<div class="bg-white border border-[#E1DACB] rounded-xl overflow-x-auto shadow-sm">
+  <table class="w-full text-left text-xs">
+    <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
+      <tr>
+        <th class="p-3">Student</th>
+        <th class="p-3">Year</th>
+        <th class="p-3">Subject</th>
+        <th class="p-3">Semester</th>
+        {% for slug, label in columns %}<th class="p-3">{{ label }}</th>{% endfor %}
+        <th class="p-3">Requested?</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-[#E1DACB]">
+      {% for row in page %}
+      <tr class="hover:bg-[#FBF9F4]/50">
+        <td class="p-3">
+          <a href="{% url 'letters:student_detail' row.student.id %}" class="font-medium text-blue-700 hover:underline">{{ row.student.display_name }}</a>
+          <div class="font-mono text-[10px] text-gray-400">{{ row.student.student_id }}</div>
+        </td>
+        <td class="p-3 text-gray-600">{{ row.student.year|default:"—" }}</td>
+        <td class="p-3">
+          <span class="font-mono font-semibold">{{ row.course.code }}</span>
+          <div class="text-[10px] text-gray-500">{{ row.course.name }}</div>
+        </td>
+        <td class="p-3 text-gray-600">{{ row.enrollment.semester }}</td>
+        {% for cell in row.cell_list %}
+        <td class="p-3">
+          {% if cell %}
+            <a href="{% url 'letters:document_status' cell.record.id %}"
+               title="Request #{{ cell.record.id }} · semester {{ cell.record.semester|default:'—' }} · {{ cell.record.company }}"
+               class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold hover:ring-2 hover:ring-[#3F7A62]/40 {{ cell.css }}">
+              {{ cell.label }}
+            </a>
+          {% else %}
+            <span class="text-gray-300">—</span>
+          {% endif %}
+        </td>
+        {% endfor %}
+        <td class="p-3">
+          {% if row.requested %}
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700">Yes</span>
+          {% else %}
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700">Not yet</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="{{ columns|length|add:5 }}" class="p-6 text-center text-gray-500">No matching registrations.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page.paginator.num_pages > 1 %}
+<div class="flex items-center justify-between mt-4 text-sm">
+  <span class="text-gray-500">Page {{ page.number }} of {{ page.paginator.num_pages }} · {{ page.paginator.count }} rows</span>
+  <div class="flex gap-2">
+    {% if page.has_previous %}<a class="px-3 py-1.5 bg-white border border-[#E1DACB] rounded-lg hover:bg-[#FBF9F4]" href="?{{ querystring }}&page={{ page.previous_page_number }}">← Previous</a>{% endif %}
+    {% if page.has_next %}<a class="px-3 py-1.5 bg-white border border-[#E1DACB] rounded-lg hover:bg-[#FBF9F4]" href="?{{ querystring }}&page={{ page.next_page_number }}">Next →</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<p class="text-[11px] text-gray-400 mt-4">
+  A request is matched to a registration by student ID and subject code. Click a status badge to open the document status page.
+</p>
+{% endblock %}

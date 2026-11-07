@@ -24,8 +24,8 @@
 <body class="bg-[#F6F3EC] min-h-screen text-[#1B2A4A]">
 
 <!-- Header Navigation Bar -->
-<header class="bg-ink border-b-4 border-gold">
-  <div class="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between">
+<header class="bg-ink border-b-4 border-gold w-full">
+  <div class="w-full px-4 sm:px-6 py-3.5 flex items-center justify-between">
     <!-- Brand Title -->
     <div>
       <div class="text-white font-semibold text-lg leading-tight">Internship Letter Generator</div>
@@ -51,36 +51,30 @@
   </div>
 
   <!-- Main Navigation Links -->
-  <nav class="max-w-6xl mx-auto px-6">
+  <nav class="w-full px-4 sm:px-6">
     <div class="flex gap-6 text-sm">
-      <!-- 1. Upload Excel -->
       <a href="{% url 'letters:index' %}" class="py-2.5 border-b-2 {% if request.path == '/' or request.path == '/letters/' %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
         Upload Excel
       </a>
 
-      <!-- 2. Upload Template -->
-    
-      <!-- 3. Upload Signed Papers -->
       <a href="{% url 'letters:signed_papers_main' %}" class="py-2.5 border-b-2 {% if 'signed' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
         Upload Signed Papers
       </a>
 
-      
-      <a href="{% url 'letters:template_list' %}" class="py-2.5 border-b-2 {% if 'templates' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">Templates</a>
-      <a href="{% url 'letters:lettertype_list' %}" class="py-2.5 border-b-2 {% if 'letter-types' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">Letter Types</a>
+      <a href="{% url 'letters:request_status' %}" class="py-2.5 border-b-2 {% if 'status' in request.path or '/students' in request.path or '/subjects' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
+        Request Status
+      </a>
 
-      {% if user.is_authenticated %}
-      
-   
-      
-     {% endif %}
+      <a href="{% url 'letters:template_list' %}" class="py-2.5 border-b-2 {% if 'templates' in request.path or 'letter-types' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
+        Templates
+      </a>
     </div>
   </nav>
 </header>
 
 <!-- Alert Messages -->
 {% if messages %}
-<div class="max-w-6xl mx-auto px-6 pt-4 space-y-2">
+<div class="w-full px-4 sm:px-6 pt-4 space-y-2">
   {% for message in messages %}
   <div class="rounded-md px-4 py-3 text-sm border
     {% if message.tags == 'success' %}bg-green-50 text-green-800 border-green-200
@@ -94,7 +88,7 @@
 {% endif %}
 
 <!-- Main Content Area -->
-
+<main class="w-full px-4 sm:px-6 py-6">
   {% block content %}{% endblock %}
 </main>
 

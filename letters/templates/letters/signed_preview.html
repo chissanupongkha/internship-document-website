@@ -46,6 +46,45 @@
     </button>
   </div>
 
+  <!-- Editable email message -->
+  <div class="mb-4 bg-white border border-[#E1DACB] rounded-xl p-4 shadow-sm">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-bold text-gray-800 text-sm">Email message</h3>
+      <div class="flex items-center gap-2">
+        <button type="button" onclick="resetEmailMessage()"
+                class="text-[11px] bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border border-gray-300 font-medium">
+          Reset to default
+        </button>
+        <button type="submit" formaction="{% url 'letters:save_email_message' %}" formnovalidate
+                class="text-[11px] bg-[#006C6C] hover:bg-[#004D4D] text-white px-3 py-1 rounded font-semibold">
+          💾 Save message
+        </button>
+      </div>
+    </div>
+
+    <label for="email_subject" class="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
+    <input type="text" id="email_subject" name="email_subject" maxlength="255"
+           value="{{ saved_email.subject }}"
+           class="w-full border border-[#E1DACB] rounded-lg px-3 py-2 text-sm mb-3 focus:ring-1 focus:ring-[#3F7A62]">
+
+    <label for="email_body" class="block text-xs font-semibold text-gray-600 mb-1">Message</label>
+    <textarea id="email_body" name="email_body" rows="8"
+              class="w-full border border-[#E1DACB] rounded-lg px-3 py-2 text-sm font-mono focus:ring-1 focus:ring-[#3F7A62]">{{ saved_email.body }}</textarea>
+
+    {% if saved_email.updated_by %}
+    <p class="text-[11px] text-gray-400 mb-1">Saved by {{ saved_email.updated_by.username }} on {{ saved_email.updated_at|date:"M d, Y H:i" }}</p>
+    {% endif %}
+    <div class="flex flex-wrap items-center gap-2 mt-2">
+      <span class="text-[11px] text-gray-500">Insert:</span>
+      <button type="button" onclick="insertPh('{name}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{name}</code></button>
+      <button type="button" onclick="insertPh('{student_id}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{student_id}</code></button>
+      <button type="button" onclick="insertPh('{company}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{company}</code></button>
+      <button type="button" onclick="insertPh('{staff_name}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{staff_name}</code></button>
+      <button type="button" onclick="insertPh('{staff_email}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{staff_email}</code></button>
+      <span class="text-[11px] text-gray-400 ml-2">Each student gets their own details filled in.</span>
+    </div>
+  </div>
+
   <div class="bg-white border border-[#E1DACB] rounded-xl overflow-hidden shadow-sm">
     <table class="w-full text-left text-xs">
       <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
@@ -204,6 +243,28 @@
 </form>
 
 <script>
+const DEFAULT_SUBJECT = "{{ default_email_subject|escapejs }}";
+const DEFAULT_BODY = "{{ default_email_body|escapejs }}";
+
+function resetEmailMessage() {
+  document.getElementById('email_subject').value = DEFAULT_SUBJECT;
+  document.getElementById('email_body').value = DEFAULT_BODY;
+}
+
+let lastEmailField = null;
+document.addEventListener('DOMContentLoaded', () => {
+  ['email_subject', 'email_body'].forEach(id => {
+    document.getElementById(id).addEventListener('focus', e => { lastEmailField = e.target; });
+  });
+});
+function insertPh(text) {
+  const el = lastEmailField || document.getElementById('email_body');
+  const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? el.value.length;
+  el.value = el.value.slice(0, s) + text + el.value.slice(e);
+  el.focus();
+  el.selectionStart = el.selectionEnd = s + text.length;
+}
+
 function toggleSelectAll(master) {
   document.querySelectorAll('.rec-checkbox:not([disabled])').forEach(cb => {
     cb.checked = master.checked;

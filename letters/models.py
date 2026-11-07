@@ -162,3 +162,71 @@ class StudentLetter(models.Model):
 
     def __str__(self):
         return f"{self.student_id} - {self.display_name or ''} ({self.letter_type})"
+
+
+class EmailTemplate(models.Model):
+    """One shared record (pk=1): the saved message for signed-letter emails."""
+    DEFAULT_SUBJECT = "Signed Internship Letter & Draft - {name}"
+    DEFAULT_BODY = (
+        "Dear {name},\n\n"
+        "Please find attached your official signed internship letter (PDF) "
+        "and draft copy.\n\n"
+        "Best regards,\n"
+        "{staff_name}\n"
+        "Faculty of ICT, Mahidol University\n"
+        "Email: {staff_email}"
+    )
+
+    subject = models.CharField(max_length=255, default=DEFAULT_SUBJECT)
+    body = models.TextField(default=DEFAULT_BODY)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+# ----------------------------------------------------------------------
+# Student / subject roster (used by the "Request Status" pages)
+# ----------------------------------------------------------------------
+class Course(models.Model):
+    """A subject, e.g. ITCS499. Shown as 'Subject' in the UI."""
+    code = models.CharField(max_length=30, unique=True)          # stored upper-case, no spaces
+    name = models.CharField(max_length=255, blank=True)
+    name_th = models.CharField(max_length=255, blank=True)
+    min_year = models.PositiveSmallIntegerField(default=2)       # lowest study year allowed to register (year 1 not allowed)
+
+    class Meta:
+        ordering = ['code']
+
+    def __str__(self):
+        return f"{self.code} {self.name}".strip()
+
+
+class Student(models.Model):
+    student_id = models.CharField(max_length=50, unique=True)
+    display_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    year = models.CharField(max_length=10, blank=True)           # study year, e.g. "3"
+
+    class Meta:
+        ordering = ['student_id']
+
+    def __str__(self):
+        return f"{self.student_id} {self.display_name}"
+
+
+class Enrollment(models.Model):
+    """A student registered in a subject in a semester."""
+    student = models.ForeignKey(Student, related_name='enrollments', on_delete=models.CASCADE)
+    course = models.ForeignKey(Course, related_name='enrollments', on_delete=models.CASCADE)
+    semester = models.CharField(max_length=20)                   # e.g. "2568/1"
+
+    class Meta:
+        unique_together = ('student', 'course', 'semester')
+        ordering = ['-semester', 'course__code']
+
+    def __str__(self):
+        return f"{self.student.student_id} - {self.course.code} ({self.semester})"

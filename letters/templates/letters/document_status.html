@@ -1,0 +1,97 @@
+{% extends 'letters/base.html' %}
+{% block title %}Document status — {{ record.display_name }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+  <a href="{% url 'letters:request_status' %}" class="text-xs text-black hover:underline">← Back to request status</a>
+
+  <div class="flex flex-wrap items-center gap-3 mt-2 mb-1">
+    <h1 class="text-xl font-semibold">Document status</h1>
+    <span class="px-3 py-1 rounded-full text-xs font-semibold {{ stage_css }}">{{ stage_label }}</span>
+  </div>
+  <p class="text-sm text-gray-500 mb-5">Request #{{ record.id }} · {{ kind_label }}</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <!-- Left: timeline -->
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold text-gray-700">Progress</h2>
+          <span class="text-xs text-gray-500">{{ progress }}%</span>
+        </div>
+        <div class="h-2 bg-gray-100 rounded-full overflow-hidden mb-5">
+          <div class="h-2 bg-[#3F7A62]" style="width: {{ progress }}%"></div>
+        </div>
+
+        <ol class="space-y-0">
+          {% for s in steps %}
+          <li class="flex gap-4">
+            <div class="flex flex-col items-center">
+              <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
+                {% if s.state == 'done' %}bg-[#3F7A62] text-white
+                {% elif s.state == 'skipped' %}bg-amber-400 text-white
+                {% else %}bg-gray-200 text-gray-500{% endif %}">
+                {% if s.state == 'done' %}✓{% elif s.state == 'skipped' %}!{% else %}{{ forloop.counter }}{% endif %}
+              </div>
+              {% if not forloop.last %}<div class="w-px flex-1 min-h-[28px] {% if s.state == 'done' %}bg-[#3F7A62]{% else %}bg-gray-200{% endif %}"></div>{% endif %}
+            </div>
+            <div class="pb-6 flex-1">
+              <div class="font-semibold text-sm {% if s.state == 'todo' %}text-gray-500{% else %}text-gray-800{% endif %}">{{ s.title }}</div>
+              {% if s.time %}<div class="text-xs text-gray-500">{{ s.time|date:"M d, Y H:i" }}</div>{% endif %}
+              {% if s.detail %}<div class="text-xs text-gray-600 mt-0.5">{{ s.detail }}</div>{% endif %}
+              {% if s.extra %}<div class="text-xs text-gray-500">{{ s.extra }}</div>{% endif %}
+              {% if s.links %}
+              <div class="flex flex-wrap gap-2 mt-2">
+                {% for l in s.links %}
+                <a href="{{ l.url }}" target="_blank" class="text-[11px] bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border border-gray-300 font-medium">{{ l.label }}</a>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+
+      <div class="bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-4 flex flex-wrap items-center gap-3">
+        <div class="text-sm text-gray-700 flex-1"><span class="font-semibold">Next step:</span> {{ next_step.text }}</div>
+        {% if next_step.url %}
+        <a href="{{ next_step.url }}" class="bg-[#006C6C] text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#004D4D]">{{ next_step.label }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Right: details -->
+    <div class="space-y-5">
+      <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5 text-sm">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Student</h2>
+        <div class="font-medium">
+          {% if student %}<a href="{% url 'letters:student_detail' student.id %}" class="text-blue-700 hover:underline">{{ record.display_name }}</a>
+          {% else %}{{ record.display_name }}{% endif %}
+        </div>
+        <div class="font-mono text-xs text-gray-500 mb-3">{{ record.student_id }}</div>
+        <dl class="grid grid-cols-3 gap-y-1.5 text-xs">
+          <dt class="text-gray-500">Year</dt><dd class="col-span-2">{{ record.year|default:"—" }}</dd>
+          <dt class="text-gray-500">Subject</dt><dd class="col-span-2">{{ record.course_id|default:"—" }}</dd>
+          <dt class="text-gray-500">Semester</dt><dd class="col-span-2">{{ record.semester|default:"—" }} (time #{{ record.times }})</dd>
+          <dt class="text-gray-500">Company</dt><dd class="col-span-2">{{ record.company|default:"—" }}</dd>
+          <dt class="text-gray-500">Position</dt><dd class="col-span-2">{{ record.internship_position|default:"—" }}</dd>
+          <dt class="text-gray-500">Period</dt><dd class="col-span-2">{{ record.period|default:"—" }}</dd>
+        </dl>
+        <a href="{% url 'letters:record_detail' record.id %}" class="inline-block mt-4 text-xs text-blue-700 hover:underline">Open / edit record →</a>
+      </div>
+
+      <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5 text-sm">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Other requests by this student</h2>
+        {% for o in others %}
+        <a href="{% url 'letters:document_status' o.record.id %}" class="flex items-center justify-between py-1.5 border-b border-[#E1DACB] last:border-0 hover:bg-[#FBF9F4]">
+          <span class="text-xs">{{ o.kind }} · {{ o.record.course_id|default:"—" }} · {{ o.record.semester|default:"—" }}</span>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold {{ o.css }}">{{ o.label }}</span>
+        </a>
+        {% empty %}
+        <p class="text-xs text-gray-400">No other requests.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

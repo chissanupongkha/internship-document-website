@@ -23,128 +23,84 @@
     {% csrf_token %}
     <input type="hidden" name="format" id="downloadFormat" value="docx">
 
-    <!-- Compact Table Wrapper -->
-    <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-hidden w-full">
-      <table class="w-full text-xs text-left border-collapse table-auto">
+    <!-- Compact table: 7 columns, scrolls sideways if the screen is narrow; Preview stays pinned on the right -->
+    <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-x-auto w-full">
+      <table class="w-full text-xs text-left border-collapse">
         <thead>
           <tr class="bg-[#FBF9F4] text-[11px] uppercase tracking-wider text-gray-500 border-b border-[#E1DACB]">
-            <th class="py-2 px-1.5 text-center w-8">
-              <input
-                type="checkbox"
-                id="selectAll"
-                onclick="toggleSelectAll(this)"
+            <th class="py-2 px-2 text-center w-8">
+              <input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"
                 class="h-3.5 w-3.5 rounded border-gray-300 text-[#3F7A62] focus:ring-[#3F7A62]"
-                title="Select/Deselect All Supported Records"
-              >
+                title="Select/Deselect All Supported Records">
             </th>
-            <th class="py-2 px-1.5">Student</th>
-            <th class="py-2 px-1.5">Company</th>
-            <th class="py-2 px-1.5">Contractor</th>
-            <th class="py-2 px-1.5">Position</th>
-            <th class="py-2 px-1.5">Course</th>
-            <th class="py-2 px-1.5">Sem.</th>
-            <th class="py-2 px-1.5 text-center">Times</th>
-            <th class="py-2 px-1.5">Period</th>
-            <th class="py-2 px-1.5">Type</th>
-            <th class="py-2 px-1.5">Template</th>
-            <th class="py-2 px-1.5">Validation</th>
-            <th class="py-2 px-1.5 text-right"></th>
+            <th class="py-2 px-2">Student</th>
+            <th class="py-2 px-2">Company / contact</th>
+            <th class="py-2 px-2">Course / period</th>
+            <th class="py-2 px-2">Semester</th>
+            <th class="py-2 px-2">Letter</th>
+            <th class="py-2 px-2">Validation</th>
+            <th class="py-2 px-2 text-right sticky right-0 bg-[#FBF9F4] shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.15)]">Preview</th>
           </tr>
         </thead>
-    
+
         <tbody class="divide-y divide-[#E1DACB]">
           {% for r in records %}
-          <tr class="hover:bg-[#FBF9F4] transition-colors align-middle">
-            <td class="py-1.5 px-1.5 text-center">
-              <input
-                type="checkbox"
-                name="record_id"
-                value="{{ r.id }}"
+          <tr class="hover:bg-[#FBF9F4] transition-colors align-top group">
+            <td class="py-2 px-2 text-center">
+              <input type="checkbox" name="record_id" value="{{ r.id }}"
                 class="record-checkbox h-3.5 w-3.5 rounded border-gray-300 text-[#3F7A62] focus:ring-[#3F7A62]"
                 {% if r.supported %}checked{% else %}disabled{% endif %}
-                onclick="updateMasterCheckbox()"
-              >
+                onclick="updateMasterCheckbox()">
             </td>
-    
-            <td class="py-1.5 px-1.5">
-              <div class="font-semibold text-gray-900 leading-tight" title="{{ r.display_name }}">
-                {{ r.display_name|default:"—" }}
+
+            <td class="py-2 px-2 min-w-[11rem]">
+              <div class="font-semibold text-gray-900 leading-tight" title="{{ r.display_name }}">{{ r.display_name|default:"—" }}</div>
+              <div class="font-mono text-[10px] text-gray-500">{{ r.student_id }} · {{ r.year|default:"—" }}</div>
+            </td>
+
+            <td class="py-2 px-2 min-w-[14rem] max-w-[18rem]">
+              {% if r.company %}<div class="text-gray-800 leading-tight" title="{{ r.company }}">{{ r.company }}</div>
+              {% else %}<div class="text-[#AD4B3D] italic">Company missing</div>{% endif %}
+              <div class="text-[10px] text-gray-500 leading-tight">
+                {% if r.contractor %}{{ r.contractor }}{% if r.contractor_position %} ({{ r.contractor_position }}){% endif %}{% else %}<span class="text-[#AD4B3D] italic">Contact missing</span>{% endif %}
+                {% if r.internship_position %}<br>Role: {{ r.internship_position }}{% endif %}
               </div>
-              <div class="font-mono text-[10px] text-gray-500">{{ r.student_id }} · Yr {{ r.year|default:"—" }}</div>
             </td>
 
-            <td class="py-1.5 px-1.5 max-w-[12rem] truncate">
-              {% if r.company %}
-                <span class="text-gray-800" title="{{ r.company }}">{{ r.company }}</span>
-              {% else %}
-                <span class="text-[#AD4B3D] italic">Missing</span>
-              {% endif %}
+            <td class="py-2 px-2 min-w-[12rem] max-w-[16rem]">
+              <div class="font-mono text-[11px] text-gray-800 leading-tight" title="{{ r.course_id }}">{{ r.course_id|default:"—" }}</div>
+              <div class="text-[10px] text-gray-500 leading-tight" title="{{ r.period }}">{{ r.period|default:"—" }}</div>
             </td>
-    
-            <td class="py-1.5 px-1.5 max-w-[11rem] truncate">
-              {% if r.contractor %}
-                <span class="text-gray-800" title="{{ r.contractor }}">{{ r.contractor }}</span>
-                {% if r.contractor_position %}
-                  <span class="text-[10px] text-gray-500 block truncate" title="{{ r.contractor_position }}">({{ r.contractor_position }})</span>
-                {% endif %}
-              {% else %}
-                <span class="text-[#AD4B3D] italic">Missing</span>
-              {% endif %}
-            </td>
-    
-            <td class="py-1.5 px-1.5 max-w-[9rem] truncate text-gray-800" title="{{ r.internship_position }}">{{ r.internship_position|default:"—" }}</td>
-            <td class="py-1.5 px-1.5 text-gray-800 font-mono text-[11px]" title="{{ r.course_id }}">{{ r.course_id|default:"—" }}</td>
-            
-            <td class="py-1.5 px-1.5 text-gray-800 whitespace-nowrap">
-              <input
-                type="text"
-                class="semester-input w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#3F7A62]"
-                data-record-id="{{ r.id }}"
-                data-original-value="{{ r.semester|default:'' }}"
-                value="{{ r.semester|default:'' }}"
-                placeholder="—"
-                onchange="saveSemester(this)"
-              >
+
+            <td class="py-2 px-2 whitespace-nowrap">
+              <input type="text"
+                class="semester-input w-20 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#3F7A62]"
+                data-record-id="{{ r.id }}" data-original-value="{{ r.semester|default:'' }}"
+                value="{{ r.semester|default:'' }}" placeholder="—" onchange="saveSemester(this)">
               <span class="semester-status text-[10px] block"></span>
+              <span class="text-[10px] text-gray-500">time #{{ r.times }}</span>
             </td>
 
-            <td class="py-1.5 px-1.5 text-center text-gray-800 font-medium">{{ r.times }}</td>
-            <td class="py-1.5 px-1.5 max-w-[9rem] truncate text-gray-800" title="{{ r.period }}">{{ r.period|default:"—" }}</td>
-            <td class="py-1.5 px-1.5 whitespace-nowrap text-gray-800 font-medium">{{ r.letter_type }}</td>
-            
-            <!-- Clean Read-Only Template Badge -->
-            <td class="py-1.5 px-1.5">
+            <td class="py-2 px-2 min-w-[10rem] max-w-[14rem]">
               <input type="hidden" name="template_{{ r.id }}" class="template-select" data-record-id="{{ r.id }}" value="{{ r.default_template_id|default:'' }}">
-              
+              <div class="text-gray-800 font-medium leading-tight">{{ r.letter_type }}</div>
               {% if r.default_template_id %}
-                {% for t in templates %}
-                  {% if t.id|stringformat:"s" == r.default_template_id|stringformat:"s" %}
-                    <div class="font-medium text-gray-900 truncate max-w-[12rem]" title="{{ t.name }}">
-                      {{ t.name }}
-                    </div>
-                    <span class="inline-flex items-center text-[10px] text-[#3F7A62] font-semibold bg-[#E1EEE6] px-1.5 py-0.5 rounded">
-                      Custom .docx
-                    </span>
-                  {% endif %}
-                {% endfor %}
+                {% for t in templates %}{% if t.id|stringformat:"s" == r.default_template_id|stringformat:"s" %}
+                  <span class="inline-flex items-center text-[10px] text-[#3F7A62] font-semibold bg-[#E1EEE6] px-1.5 py-0.5 rounded mt-0.5" title="{{ t.name }}">Template: {{ t.name }}</span>
+                {% endif %}{% endfor %}
               {% else %}
-                <div class="font-medium text-gray-700 truncate max-w-[12rem]">
-                  Built-in Layout
-                </div>
-                
+                <span class="inline-flex text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded mt-0.5">Built-in layout</span>
               {% endif %}
             </td>
-    
-            <!-- Compact Validation Badge -->
-            <td class="py-1.5 px-1.5 whitespace-nowrap">
+
+            <td class="py-2 px-2 min-w-[8rem]">
               <span class="status-badge inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"></span>
-              <div class="status-detail text-[10px] text-gray-500 max-w-[10rem] truncate"></div>
+              <div class="status-detail text-[10px] text-gray-500 max-w-[10rem]"></div>
             </td>
-    
-            <td class="py-1.5 px-1.5 text-right whitespace-nowrap">
-              <a href="{% url 'letters:record_detail' r.id %}" target="_blank" class="text-xs font-semibold text-black hover:underline">
-                View →
-              </a>
+
+            <td class="py-2 px-2 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-[#FBF9F4] shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.15)]">
+              <a href="{% url 'letters:record_detail' r.id %}" target="_blank"
+                 class="inline-block px-2.5 py-1 rounded bg-[#006C6C] text-white text-xs font-semibold hover:bg-[#004D4D]">Preview</a>
             </td>
           </tr>
           {% endfor %}

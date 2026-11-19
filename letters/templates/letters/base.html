@@ -22,56 +22,58 @@
 {% block extra_head %}{% endblock %}
 </head>
 <body class="bg-[#F6F3EC] min-h-screen text-[#1B2A4A]">
-
-<!-- Header Navigation Bar -->
-<header class="bg-ink border-b-4 border-gold w-full">
-  <div class="w-full px-4 sm:px-6 py-3.5 flex items-center justify-between">
-    <!-- Brand Title -->
-    <div>
-      <div class="text-white font-semibold text-lg leading-tight">Internship Letter Generator</div>
-      <div class="text-gray-300 text-xs tracking-wide uppercase">Faculty of ICT · Mahidol University</div>
+<style>
+  #side{width:13rem;background:#006C6C;transition:width .15s}
+  #side.min{width:3rem}
+  #side .grp{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.5);padding:1rem .75rem .35rem}
+  #side .mi{display:flex;align-items:center;gap:.75rem;padding:.45rem .75rem;margin:1px .5rem;border-radius:.4rem;font-size:.85rem;color:rgba(255,255,255,.72);border-left:2px solid transparent}
+  #side .mi:hover{color:#fff;background:rgba(255,255,255,.08)}
+  #side .mi.on{color:#fff;background:rgba(255,255,255,.12);border-left-color:#FFFFC9}
+  #side.min nav,#side.min .lb-brand,#side.min .foot{display:none}
+  #side.min>div:first-child{justify-content:center;padding-left:0;padding-right:0}
+</style>
+<div class="flex min-h-screen">
+  <!-- Sidebar -->
+  <aside id="side" class="shrink-0 flex flex-col sticky top-0 h-screen overflow-y-auto">
+    <div class="flex items-center justify-between px-4 py-4 border-b border-white/10">
+      <div class="lb-brand leading-tight">
+        <div class="text-white font-semibold text-sm">Internship Letters</div>
+        <div class="text-white/50 text-[10px] uppercase tracking-wide">Faculty of ICT</div>
+      </div>
+      <button id="side-toggle" type="button" aria-label="Collapse menu" class="text-white/70 hover:text-white text-lg leading-none">&#8801;</button>
     </div>
-
-    <!-- Top Right Auth Navigation -->
-    <div class="flex items-center space-x-4 text-xs font-medium">
+    {% with p=request.path %}
+    <nav class="flex-1 pb-4">
+      <div class="grp">Requests</div>
+      <a href="{% url 'letters:index' %}" class="mi {% if p == '/' or p == '/letters/' or '/record/add' in p or 'upload' in p and 'signed' not in p %}on{% endif %}" title="Upload Excel"><span class="ic" hidden>U</span><span class="lb">Upload Excel</span></a>
+      <a href="{% url 'letters:add_record' %}" class="mi {% if '/record/add' in p %}on{% endif %}" title="Add a request"><span class="ic" hidden>A</span><span class="lb">Add a request</span></a>
+      <div class="grp">Tracking</div>
+      <a href="{% url 'letters:request_status' %}" class="mi {% if 'status' in p %}on{% endif %}" title="Request status"><span class="ic" hidden>R</span><span class="lb">Request status</span></a>
+      <a href="{% url 'letters:signed_papers_main' %}" class="mi {% if 'signed' in p %}on{% endif %}" title="Signed papers"><span class="ic" hidden>S</span><span class="lb">Signed papers</span></a>
+      <a href="{% url 'letters:report' %}" class="mi {% if '/reports' in p %}on{% endif %}" title="Reports"><span class="ic" hidden>R</span><span class="lb">Reports</span></a>
+      <div class="grp">Academic data</div>
+      <a href="{% url 'letters:student_list' %}" class="mi {% if '/students' in p %}on{% endif %}" title="Students"><span class="ic" hidden>S</span><span class="lb">Students</span></a>
+      <a href="{% url 'letters:subject_list' %}" class="mi {% if '/subjects' in p %}on{% endif %}" title="Subjects"><span class="ic" hidden>S</span><span class="lb">Subjects</span></a>
+      <div class="grp">Configuration</div>
+      <a href="{% url 'letters:template_list' %}" class="mi {% if '/templates' in p %}on{% endif %}" title="Document templates"><span class="ic" hidden>D</span><span class="lb">Document templates</span></a>
+      <a href="{% url 'letters:email_templates' %}" class="mi {% if '/email-templates' in p %}on{% endif %}" title="Email templates"><span class="ic" hidden>E</span><span class="lb">Email templates</span></a>
+      <a href="{% url 'letters:lettertype_list' %}" class="mi {% if 'letter-types' in p or '/mappings' in p %}on{% endif %}" title="Letter type mapping"><span class="ic" hidden>L</span><span class="lb">Letter type mapping</span></a>
+      <div class="grp">Administration</div>
+      <a href="{% url 'letters:user_list' %}" class="mi {% if '/accounts' in p %}on{% endif %}" title="Accounts"><span class="ic" hidden>A</span><span class="lb">Accounts</span></a>
+      <a href="{% url 'letters:audit_logs' %}" class="mi {% if 'audit' in p %}on{% endif %}" title="Activity log"><span class="ic" hidden>A</span><span class="lb">Activity log</span></a>
+    </nav>
+    {% endwith %}
+    <div class="foot border-t border-white/10 px-4 py-3 text-xs">
       {% if user.is_authenticated %}
-        <a href="{% url 'letters:profile' %}" class="text-gray-200 hover:text-gold transition-colors flex items-center gap-1.5">
-          <span>👤 Staff:</span>
-          <span class="text-white font-semibold">{{ user.username }}</span>
-        </a>
-        <a href="{% url 'letters:logout' %}" class="px-3 py-1.5 bg-red-600/20 text-red-200 border border-red-400/30 hover:bg-red-600 hover:text-white rounded-lg transition-all">
-          Logout
-        </a>
+        <a href="{% url 'letters:profile' %}" class="lb text-white/80 hover:text-white block truncate">{{ user.get_full_name|default:user.username }}</a>
+        <a href="{% url 'letters:logout' %}" class="lb text-white/50 hover:text-[#FFFFC9]">Sign out</a>
       {% else %}
-        <a href="{% url 'letters:login' %}" class="px-4 py-1.5 bg-gold text-[#006C6C] font-semibold rounded-lg hover:bg-white transition-all shadow-sm">
-          Log In
-        </a>
+        <a href="{% url 'letters:login' %}" class="lb text-[#FFFFC9] font-semibold">Sign in</a>
       {% endif %}
     </div>
-  </div>
+  </aside>
 
-  <!-- Main Navigation Links -->
-  <nav class="w-full px-4 sm:px-6">
-    <div class="flex gap-6 text-sm">
-      <a href="{% url 'letters:index' %}" class="py-2.5 border-b-2 {% if request.path == '/' or request.path == '/letters/' %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
-        Upload Excel
-      </a>
-
-      <a href="{% url 'letters:signed_papers_main' %}" class="py-2.5 border-b-2 {% if 'signed' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
-        Upload Signed Papers
-      </a>
-
-      <a href="{% url 'letters:request_status' %}" class="py-2.5 border-b-2 {% if 'status' in request.path or '/students' in request.path or '/subjects' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
-        Request Status
-      </a>
-
-      <a href="{% url 'letters:template_list' %}" class="py-2.5 border-b-2 {% if 'templates' in request.path or 'letter-types' in request.path %}border-gold text-white{% else %}border-transparent text-gray-300 hover:text-white{% endif %}">
-        Templates
-      </a>
-    </div>
-  </nav>
-</header>
-
+  <div class="flex-1 min-w-0">
 <!-- Alert Messages -->
 {% if messages %}
 <div class="w-full px-4 sm:px-6 pt-4 space-y-2">
@@ -92,5 +94,12 @@
   {% block content %}{% endblock %}
 </main>
 
+  </div>
+</div>
+<script>
+  (function(){var s=document.getElementById("side"),k="sideMin";
+  try{if(localStorage.getItem(k)==="1")s.classList.add("min")}catch(e){}
+  document.getElementById("side-toggle").onclick=function(){s.classList.toggle("min");try{localStorage.setItem(k,s.classList.contains("min")?"1":"0")}catch(e){}};})();
+</script>
 </body>
 </html>

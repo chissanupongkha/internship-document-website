@@ -20,11 +20,13 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .decorators import staff_required
-from .docgen import normalize_letter_type
+from .decorators import admin_required, get_role, staff_required
+from .docgen import H_COMPANY, H_PERIOD, normalize_letter_type
 from .models import (
+    ChangeLog,
     Course,
     Enrollment,
     GeneratedDocument,
@@ -60,14 +62,6 @@ def _valid_email(value):
 DEFAULT_MIN_YEAR = 2          # year 1 students may not register internship subjects
 
 
-def _year_block(year, code, min_year):
-    """Reason text if a student of this study year may not register the subject, else None."""
-    digits = re.sub(r'\D', '', str(year or ''))
-    if digits and int(digits) < int(min_year):
-        return f"Year {digits} students cannot register {code} (minimum year {min_year})"
-    return None
-
-
 def _one_per_semester_block(student, course, semester):
     """Reason text if the student already has a different subject in this semester, else None."""
     other = (Enrollment.objects.filter(student=student, semester=semester)
@@ -90,10 +84,10 @@ def _split_subject(text):
 # ----------------------------------------------------------------------
 STAGE_RECEIVED, STAGE_DRAFT, STAGE_SIGNED, STAGE_SENT = 0, 1, 2, 3
 STAGE_INFO = {
-    STAGE_RECEIVED: ('Received', 'bg-gray-100 text-gray-700'),
-    STAGE_DRAFT: ('Draft ready', 'bg-yellow-100 text-yellow-800'),
-    STAGE_SIGNED: ('Signed', 'bg-blue-100 text-blue-700'),
-    STAGE_SENT: ('Emailed', 'bg-green-100 text-green-700'),
+    STAGE_RECEIVED: ('รับคำร้อง', 'bg-gray-100 text-gray-700'),
+    STAGE_DRAFT: ('อยู่ระหว่างดำเนินการ', 'bg-yellow-100 text-yellow-800'),
+    STAGE_SIGNED: ('คณบดีลงนามแล้ว', 'bg-blue-100 text-blue-700'),
+    STAGE_SENT: ('ส่งอีเมลแล้ว', 'bg-green-100 text-green-700'),
 }
 
 # "refer" in the UI = the 'confirm' (referral/confirmation) letter type
@@ -228,6 +222,8 @@ def request_status(request):
     q = request.GET.get('q', '').strip()                 # subject text
     subject_id = request.GET.get('subject', '').strip()
     semester = request.GET.get('semester', '').strip()
+    year = request.GET.get('year', '').strip()           # whole academic year, e.g. 2569
+    stage_f = request.GET.get('stage', '').strip()       # letter status
     student_q = request.GET.get('student', '').strip()
     state = request.GET.get('state', 'all')
 
@@ -240,6 +236,8 @@ def request_status(request):
         enrollments = enrollments.filter(course_id=int(subject_id))
     if semester:
         enrollments = enrollments.filter(semester=semester)
+    if year.isdigit():
+        enrollments = enrollments.filter(semester__startswith=year + '/')
     if student_q:
         enrollments = enrollments.filter(
             Q(student__student_id__icontains=student_q) | Q(student__display_name__icontains=student_q)
@@ -251,6 +249,9 @@ def request_status(request):
     requested = sum(1 for r in rows if r['requested'])
     emailed = sum(1 for r in rows if r['best_stage'] == STAGE_SENT)
 
+    stage_ids = {'received': STAGE_RECEIVED, 'draft': STAGE_DRAFT, 'signed': STAGE_SIGNED, 'emailed': STAGE_SENT}
+    if stage_f in stage_ids:
+        rows = [r for r in rows if any(c and c['stage'] == stage_ids[stage_f] for c in r['cell_list'])]
     if state == 'requested':
         rows = [r for r in rows if r['requested']]
     elif state == 'not_requested':
@@ -269,7 +270,9 @@ def request_status(request):
         'emailed': emailed,
         'courses': Course.objects.all(),
         'semesters': Enrollment.objects.order_by('-semester').values_list('semester', flat=True).distinct(),
-        'f': {'q': q, 'subject': subject_id, 'semester': semester, 'student': student_q, 'state': state},
+        'years': sorted({str(x).split('/')[0] for x in Enrollment.objects.values_list('semester', flat=True) if '/' in str(x)}, reverse=True),
+        'f': {'q': q, 'subject': subject_id, 'semester': semester, 'year': year, 'stage': stage_f,
+              'student': student_q, 'state': state},
         'querystring': params.urlencode(),
         'has_roster': Enrollment.objects.exists(),
     })
@@ -309,7 +312,7 @@ def document_status(request, record_id):
 
     steps = [
         {
-            'title': 'Request received',
+            'title': '1. รับคำร้อง',
             'state': 'done',
             'time': batch.uploaded_at if batch else None,
             'detail': (f"Uploaded in batch #{batch.id} — {batch.file_name}" if batch else ''),
@@ -317,7 +320,7 @@ def document_status(request, record_id):
             'links': [],
         },
         {
-            'title': 'Draft letter generated',
+            'title': '2. อยู่ระหว่างดำเนินการ (สร้างร่างหนังสือ)',
             'state': 'done' if draft_ready else ('skipped' if skipped else 'todo'),
             'time': doc.created_at if (doc and draft_ready) else None,
             'detail': (f"Reference no. {doc.ref_no}" if doc and doc.ref_no and draft_ready else
@@ -328,7 +331,7 @@ def document_status(request, record_id):
                       if draft_ready else []),
         },
         {
-            'title': 'Signed letter uploaded',
+            'title': '3. คณบดีลงนามแล้ว (อัปโหลดไฟล์ลงนาม)',
             'state': 'done' if signed_ready else 'todo',
             'time': None,
             'detail': 'Signed PDF is attached to this request.' if signed_ready else 'Waiting for the signed PDF.',
@@ -337,7 +340,7 @@ def document_status(request, record_id):
                       if signed_ready else []),
         },
         {
-            'title': 'Emailed to student',
+            'title': '4. ส่งอีเมลแล้ว',
             'state': 'done' if sent else 'todo',
             'time': doc.email_sent_at if (doc and sent) else None,
             'detail': (f"Sent to {email_to}" if sent and email_to else
@@ -395,7 +398,52 @@ def document_status(request, record_id):
         'progress': int(done_count / 4 * 100),
         'next_step': next_step,
         'others': others,
+        'changes': record.changes.select_related('changed_by'),
+        'is_admin': get_role(request.user) == 'admin',
     })
+
+
+def log_changes(request, record, new_company, new_period, reason=''):
+    """Write one ChangeLog row for each of company / period that really changed."""
+    reason = (reason or '').strip()[:255]
+    for field, old, new in (('company', record.company, new_company), ('period', record.period, new_period)):
+        old, new = (old or '').strip(), (new or '').strip()
+        if old != new:
+            ChangeLog.objects.create(record=record, field=field, old_value=old, new_value=new,
+                                     reason=reason, changed_by=request.user)
+            log_activity(request, 'CHANGE', f"Request #{record.id} {field}: '{old}' -> '{new}'" + (f" ({reason})" if reason else ''))
+
+
+@admin_required
+@require_POST
+def record_change(request, record_id):
+    """Admin edits the company and/or internship period after the change was approved on paper."""
+    record = get_object_or_404(StudentRecord, id=record_id)
+    company = request.POST.get('company', '').strip()
+    period = request.POST.get('period', '').strip()
+    reason = request.POST.get('reason', '').strip()
+    if not company or not period:
+        messages.error(request, "Company and period cannot be empty.")
+        return redirect('letters:document_status', record_id=record.id)
+    problem = _period_problem(period)
+    if problem:
+        messages.error(request, f"Period {problem}")
+        return redirect('letters:document_status', record_id=record.id)
+    if company == (record.company or '').strip() and period == (record.period or '').strip():
+        messages.info(request, "Nothing changed.")
+        return redirect('letters:document_status', record_id=record.id)
+    log_changes(request, record, company, period, reason)
+    data = dict(record.data or {})
+    for key in list(data.keys()):
+        k = str(key).lower()
+        if key in H_COMPANY:
+            data[key] = company
+        if key in H_PERIOD:
+            data[key] = period
+    record.data, record.company, record.period = data, company, period
+    record.save()
+    messages.success(request, "Saved. The change is in the history below. Generate or download the letter again to use the new details.")
+    return redirect('letters:document_status', record_id=record.id)
 
 
 # ----------------------------------------------------------------------
@@ -422,9 +470,18 @@ def subject_save(request):
     name_th = request.POST.get('name_th', '').strip()
     course_id = request.POST.get('id', '')
     min_year = request.POST.get('min_year', str(DEFAULT_MIN_YEAR)).strip()
+    semester = request.POST.get('semester', '').strip()
+    start_date = request.POST.get('start_date', '').strip() or None
+    end_date = request.POST.get('end_date', '').strip() or None
 
+    if semester and not SEMESTER_RE.match(semester):
+        messages.error(request, "Semester must look like 2569/1.")
+        return redirect('letters:subject_list')
     if not code:
         messages.error(request, "Subject code is required.")
+        return redirect('letters:subject_list')
+    if start_date and end_date and end_date < start_date:        # ISO dates compare as text
+        messages.error(request, "The semester end date cannot be before the start date.")
         return redirect('letters:subject_list')
     if min_year not in VALID_YEARS:
         messages.error(request, "Minimum year must be 1-4.")
@@ -441,10 +498,12 @@ def subject_save(request):
     if course_id.isdigit():
         course = get_object_or_404(Course, id=int(course_id))
         course.code, course.name, course.name_th, course.min_year = code, name, name_th, min_year
+        course.semester, course.start_date, course.end_date = semester, start_date, end_date
         course.save()
         messages.success(request, f"Subject {code} updated.")
     else:
-        Course.objects.create(code=code, name=name, name_th=name_th, min_year=min_year)
+        Course.objects.create(code=code, name=name, name_th=name_th, min_year=min_year,
+                              semester=semester, start_date=start_date, end_date=end_date)
         messages.success(request, f"Subject {code} added.")
     log_activity(request, 'EDIT_SUBJECT', f"Saved subject {code}")
     return redirect('letters:subject_list')
@@ -455,6 +514,10 @@ def subject_save(request):
 def subject_delete(request, pk):
     course = get_object_or_404(Course, pk=pk)
     code = course.code
+    # Once the semester of a subject has started, the subject cannot be deleted.
+    if course.started:
+        messages.error(request, f"Subject {code} cannot be deleted: its semester {course.semester or ''} started on {course.start_date:%d/%m/%Y}.")
+        return redirect('letters:subject_list')
     course.delete()                                      # also removes its registrations
     log_activity(request, 'DELETE_SUBJECT', f"Deleted subject {code}")
     messages.success(request, f"Subject {code} deleted.")
@@ -604,11 +667,6 @@ def student_form(request, pk=None):
         if len(set(picked)) > 1:
             errors.append("A student can register only one subject per semester - choose one subject.")
         for course in Course.objects.filter(id__in=set(picked)):
-            reason = _year_block(form['year'], course.code, course.min_year)
-            if reason:
-                errors.append(reason + ".")
-            elif not form['year'] and picked:
-                errors.append("Select the student's year before registering a subject.")
             if student is not None and SEMESTER_RE.match(form['semester']):
                 reason = _one_per_semester_block(student, course, form['semester'])
                 if reason:
@@ -661,8 +719,24 @@ def student_detail(request, pk):
         unmatched.append({'record': r, 'kind': resolve(r.letter_type),
                           'label': STAGE_INFO[st][0], 'css': STAGE_INFO[st][1]})
 
+    # ---- internship history: every request this student has made, newest first ----
+    all_recs = list(StudentRecord.objects.filter(student_id=student.student_id).order_by('-id'))
+    docs_by_rec = {}
+    for d in GeneratedDocument.objects.filter(record__in=all_recs).order_by('id'):
+        docs_by_rec[d.record_id] = d
+    reg = [(_norm_code(e.course.code), e.course, e.semester) for e in student.enrollments.select_related('course')]
+    history = []
+    for r in all_recs:
+        norm = _norm_code(r.course_id)
+        hit = next(((c, sem) for code, c, sem in reg if code and code in norm and (not r.semester or sem == r.semester)), None) if norm else None
+        st = _list_stage(docs_by_rec.get(r.id))
+        history.append({'record': r, 'kind': resolve(r.letter_type), 'registered': hit is not None,
+                        'label': STAGE_INFO[st][0], 'css': STAGE_INFO[st][1]})
+    companies = sorted({h['record'].company.strip() for h in history if h['record'].company.strip()})
+
     return render(request, 'letters/student_detail.html', {
         'student': student, 'rows': rows, 'columns': columns, 'unmatched': unmatched,
+        'history': history, 'companies': companies,
     })
 
 
@@ -830,24 +904,6 @@ def _import_students_table(df, default_semester, commit):
                     continue
                 seen_regs.add((sid, code, semester))
 
-                # rule 1: minimum study year   (a subject that does not exist yet gets the default)
-                existing = Course.objects.filter(code=code).first()
-                min_year = existing.min_year if existing else DEFAULT_MIN_YEAR
-                eff_year = student.year
-                reason = _year_block(eff_year, code, min_year)
-                if reason:
-                    problems.append(_problem(line, 'skip', sid, reason + " - not registered"))
-                    continue
-                if not re.sub(r'\D', '', eff_year or ''):
-                    problems.append(_problem(line, 'warn', sid, f"Year is not known, so the minimum year for {code} was not checked"))
-
-                # rule 2: one subject per semester
-                if existing:
-                    reason = _one_per_semester_block(student, existing, semester)
-                    if reason:
-                        problems.append(_problem(line, 'skip', sid, f"{code}: {reason} - not registered"))
-                        continue
-
                 course, c_created = Course.objects.get_or_create(code=code, defaults={'name': course_name})
                 if c_created:
                     new_courses.add(code)
@@ -958,14 +1014,10 @@ ISSUE_LABELS = {
     'bad_letter_type': 'Letter type unknown',
     'no_subject': 'Subject empty',
     'bad_subject': 'Subject unknown',
-    'not_registered': 'Not registered in subject',
-    'bad_year': 'Invalid year',
-    'year_not_allowed': 'Year not allowed for subject',
+    'not_registered': 'Not on the subject list yet',
     'two_subjects': 'Two subjects in one semester',
-    'year_mismatch': 'Year differs from list',
     'name_mismatch': 'Name differs from list',
     'missing_field': 'Required field empty',
-    'bad_period': 'Period unreadable',
     'bad_email': 'Invalid email',
     'duplicate': 'Duplicate request',
 }
@@ -985,15 +1037,20 @@ def _period_problem(period):
     text = (period or '').strip()
     if not text:
         return None                                   # reported as an empty field instead
-    m = re.search(r'\((.*?)\)', text)
-    parts = (m.group(1) if m else text).split('-')
+    m = re.search(r'\(([^)]*[-\u2013][^)]*)\)', text)       # a range inside brackets, not "(2 เดือน)"
+    if not m:
+        text = re.sub(r'\([^)]*\)', '', text)
+    text = text.replace('วันที่', '')
+    parts = re.split(r'\s*[-\u2013\u2014]\s*|\s+ถึง\s+', (m.group(1) if m else text))
     if len(parts) != 2:
         return 'is not a date range such as "1 พ.ย. 2568 - 31 ม.ค. 2569"'
     start, end = _parse_thai_date(parts[0]), _parse_thai_date(parts[1])
-    if not start or not end or end[2] is None:
+    if not start or not end:
         return 'dates could not be read'
+    if end[2] is None and start[2] is None:
+        return None                                   # no year written at all: not an error
     try:
-        end_d = date(end[2], end[1], end[0])
+        end_d = date(end[2] or start[2], end[1], end[0])
         start_year = start[2] or end[2]
         start_d = date(start_year, start[1], start[0])
         if start[2] is None and start_d > end_d:      # "1 พ.ย. - 31 ม.ค. 2569" crosses a year
@@ -1005,6 +1062,97 @@ def _period_problem(period):
     return None
 
 
+
+# ----------------------------------------------------------------------
+# Company names and company changes
+# ----------------------------------------------------------------------
+_COMPANY_NOISE = ('บริษัท', 'จำกัด', 'มหาชน', 'ประเทศไทย', 'company', 'limited', 'co', 'ltd', 'inc', 'corp', 'public')
+
+
+def _company_key(name):
+    text = str(name or '').lower()
+    for word in _COMPANY_NOISE:
+        text = text.replace(word, '')
+    return re.sub(r'[^a-z0-9฀-๿]', '', text)
+
+
+def _same_company(a, b):
+    """True when two spellings very likely name the same company."""
+    ka, kb = _company_key(a), _company_key(b)
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    if min(len(ka), len(kb)) >= 4 and (ka in kb or kb in ka):
+        return True
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, ka, kb).ratio() >= 0.85
+
+
+def _period_dates(period):
+    """(start, end) as dates, or None when the period cannot be read."""
+    text = (period or '').strip()
+    m = re.search(r'\(([^)]*[-\u2013][^)]*)\)', text)       # a range inside brackets, not "(2 เดือน)"
+    if not m:
+        text = re.sub(r'\([^)]*\)', '', text)
+    text = text.replace('วันที่', '')
+    parts = re.split(r'\s*[-\u2013\u2014]\s*|\s+ถึง\s+', (m.group(1) if m else text))
+    if len(parts) != 2:
+        return None
+    start, end = _parse_thai_date(parts[0]), _parse_thai_date(parts[1])
+    if not start or not end or end[2] is None:
+        return None
+    try:
+        end_d = date(end[2], end[1], end[0])
+        start_d = date(start[2] or end[2], start[1], start[0])
+        if start[2] is None and start_d > end_d:
+            start_d = date(start_d.year - 1, start[1], start[0])
+    except ValueError:
+        return None
+    return start_d, end_d
+
+
+def _unlisted_students(records):
+    """Students named in a request file who are not in the student list yet.
+    -> {student_id: [records]} (empty while no student list has been loaded)."""
+    if not Student.objects.exists():
+        return {}
+    known = set(Student.objects.values_list('student_id', flat=True))
+    out = {}
+    for r in records:
+        sid = (r.student_id or '').strip()
+        if STUDENT_ID_RE.match(sid) and sid not in known:
+            out.setdefault(sid, []).append(r)
+    return out
+
+
+def _bring_in_students(request, unlisted, ticked):
+    """Add the ticked students (and their subject registration) to the system.
+    Returns (records_to_keep_out, number_added)."""
+    courses = [(_norm_code(c.code), c) for c in Course.objects.all()]
+    added, left_out = 0, []
+    for sid, recs in unlisted.items():
+        if sid not in ticked:
+            left_out.extend(recs)
+            continue
+        first = recs[0]
+        stu, _ = Student.objects.get_or_create(student_id=sid, defaults={
+            'display_name': (first.display_name or '').strip() or sid,
+            'year': (first.year or '').strip()})
+        added += 1
+        for r in recs:
+            r.data = dict(r.data or {}, _confirmed_not_in_list=True)
+            norm = _norm_code(r.course_id)
+            course = next((c for code, c in courses if code and code in norm), None) if norm else None
+            if course is not None and r.semester:
+                Enrollment.objects.get_or_create(student=stu, course=course, semester=r.semester)
+    if added:
+        log_activity(request, 'ADD_STUDENTS',
+                     f"Brought {added} student(s) who were not in the student list into the system "
+                     f"(confirmed while importing a request file).")
+    return left_out, added
+
+
 def _check_records(records):
     """-> list of {'record', 'issues': [(level, code, message)], 'worst'} in record order."""
     students = {s.student_id.strip(): s for s in Student.objects.all()}
@@ -1012,6 +1160,7 @@ def _check_records(records):
     for e in Enrollment.objects.all():
         enrolled[e.student_id].add(e.course_id)
     courses = [(_norm_code(c.code), c) for c in Course.objects.all()]
+    courses_with_list = set(Enrollment.objects.values_list('course_id', flat=True))   # subjects whose list was imported
     # The comparisons below only make sense once the lists are in use.
     use_students, use_courses = bool(students), bool(courses)
     known_kinds = {slug for slug, _ in _kind_columns()}
@@ -1028,6 +1177,15 @@ def _check_records(records):
         if c is not None and (r.student_id or '').strip() and r.semester:
             subjects_by_semester[((r.student_id or '').strip(), r.semester)].add(c.code)
 
+    # ---- company names and company changes ----
+    this_pks = {r.pk for r in records if r.pk}
+    known_requests = defaultdict(list)                  # student id -> requests already saved
+    known_companies = {}                                # company key -> first spelling seen
+    for o in StudentRecord.objects.exclude(pk__in=this_pks).exclude(company=''):
+        known_requests[(o.student_id or '').strip()].append(o)
+        known_companies.setdefault(_company_key(o.company), o.company.strip())
+    seen_in_list = defaultdict(list)                    # student id -> earlier rows of this list
+
     results = []
     for r in records:
         issues = []
@@ -1039,7 +1197,7 @@ def _check_records(records):
             issues.append((ERROR, 'bad_id', f"Student ID '{sid}' must be 7-10 digits"))
         else:
             stu = students.get(sid)
-            if stu is None and use_students:
+            if stu is None and use_students and not (r.data or {}).get('_confirmed_not_in_list'):
                 issues.append((ERROR, 'no_student', f"Student {sid} is not in the student list"))
 
         # letter type
@@ -1059,25 +1217,17 @@ def _check_records(records):
             if course is None and use_courses:
                 issues.append((ERROR, 'bad_subject', f"Subject '{subject_text}' is not in the Subjects list"))
             elif course is not None:
-                form_year = re.sub(r'\D', '', r.year or '')
-                known_year = stu.year if (stu is not None and stu.year) else form_year
-                reason = _year_block(known_year, course.code, course.min_year)
-                if reason:
-                    issues.append((ERROR, 'year_not_allowed', reason))
-                elif stu is not None and course.id not in enrolled[stu.id]:
-                    issues.append((ERROR, 'not_registered', f"{stu.student_id} is not registered in {course.code}"))
+                # Letters are submitted BEFORE course registration, so this is only a hint.
+                # Nothing is assumed from the student ID or study year (retakers and older cohorts are normal).
+                if stu is not None and course.id in courses_with_list and course.id not in enrolled[stu.id]:
+                    issues.append((WARN, 'not_registered',
+                                   f"{stu.student_id} is not on the registration list of {course.code} yet. "
+                                   f"This may be fine - letters are requested before registration."))
                 taken = subjects_by_semester.get((sid, r.semester), set())
                 if len(taken) > 1:
                     issues.append((WARN, 'two_subjects',
                                    f"Requests for {', '.join(sorted(taken))} are in the same semester {r.semester} - "
                                    f"a student can register only one subject per semester"))
-
-        # year
-        year = re.sub(r'\D', '', r.year or '')
-        if year and year not in VALID_YEARS:
-            issues.append((ERROR, 'bad_year', f"Year '{r.year}' must be 1-4"))
-        elif year and stu is not None and stu.year and stu.year != year:
-            issues.append((WARN, 'year_mismatch', f"Year is {year} but the student list says {stu.year}"))
 
         # name
         if stu is not None and r.display_name.strip() and _name_key(stu.display_name) != _name_key(r.display_name):
@@ -1085,16 +1235,11 @@ def _check_records(records):
 
         # required fields
         missing = [label for label, value in (
-            ('student name', r.display_name), ('year', r.year), ('company', r.company),
+            ('student name', r.display_name), ('company', r.company),
             ('contact person', r.contractor), ('internship position', r.internship_position),
             ('period', r.period)) if not str(value or '').strip()]
         if missing:
             issues.append((ERROR, 'missing_field', "Empty: " + ", ".join(missing)))
-
-        # period
-        problem = _period_problem(r.period)
-        if problem:
-            issues.append((ERROR, 'bad_period', f"Period {problem}"))
 
         # emails anywhere in the form row
         for key, value in (r.data or {}).items():
@@ -1102,6 +1247,8 @@ def _check_records(records):
             if text and ('mail' in str(key).lower() or 'อีเมล' in str(key)) and not _valid_email(text):
                 label = str(key).split('\n')[0][:40]
                 issues.append((WARN, 'bad_email', f"Email '{text}' in '{label}' is not valid"))
+
+        seen_in_list[sid].append(r)
 
         # repeat submission
         if (r.times or 1) > 1:

@@ -1,15 +1,15 @@
 {% extends 'letters/base.html' %}
-{% block title %}Dispatch Signed Letters{% endblock %}
+{% block title %}Signed letters and email{% endblock %}
 
 {% block content %}
 <div class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
   <!-- Filter Batch Form -->
   <form method="get" action="{% url 'letters:signed_preview' %}" class="flex items-center gap-3">
-    <label for="batch_id" class="text-sm font-semibold text-gray-700">Filter Batch:</label>
+    <label for="batch_id" class="text-sm font-semibold text-gray-700">Show upload:</label>
     <select name="batch_id" id="batch_id" onchange="this.form.submit()" 
             class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white shadow-sm focus:ring-2 focus:ring-[#3F7A62]">
       <option value="all" {% if selected_batch_id == 'all' %}selected{% endif %}>
-        All Batches (Deduplicated)
+        All uploads (latest request per student)
       </option>
       {% for b in batches %}
         <option value="{{ b.id }}" {% if selected_batch_id == b.id|stringformat:"s" %}selected{% endif %}>
@@ -24,10 +24,29 @@
     {% csrf_token %}
     <input type="file" name="signed_files" multiple accept=".pdf,.zip" required class="text-xs text-gray-600 border border-gray-200 rounded-lg p-1 bg-white">
     <button type="submit" class="px-4 py-2 bg-[#006C6C] text-white rounded-lg text-sm font-medium hover:bg-[#004D4D] transition shadow-sm">
-      Upload Signed PDFs
+      Upload signed PDFs (match by file name)
     </button>
   </form>
 </div>
+
+<!-- Upload one signed letter for a chosen student; the file is renamed automatically -->
+<form action="{% url 'letters:signed_upload_manual' %}" method="post" enctype="multipart/form-data"
+      class="flex flex-wrap items-end gap-3 mb-6 bg-white border border-[#E1DACB] rounded-xl p-4 shadow-sm">
+  {% csrf_token %}
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Student</label>
+    <select name="record_id" required class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[22rem]">
+      <option value="">Choose a student…</option>
+      {% for item in summary %}<option value="{{ item.record.id }}">{{ item.record.student_id }} · {{ item.record.display_name }} · {{ item.record.letter_type }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Signed letter (PDF)</label>
+    <input type="file" name="signed_file" accept=".pdf" required class="text-xs border border-gray-200 rounded-lg p-1 bg-white">
+  </div>
+  <button class="px-4 py-2 bg-white border border-[#006C6C] text-[#006C6C] rounded-lg text-sm font-semibold hover:bg-[#FBF9F4]">Save for this student</button>
+  <p class="text-xs text-gray-500 w-full">The system names the file <span class="font-mono">studentID_lettertype_signed.pdf</span>.</p>
+</form>
 
 <!-- Send Email Dispatch Form -->
 <form action="{% url 'letters:send_signed_emails' %}" method="post">
@@ -38,7 +57,7 @@
   <div class="flex items-center justify-between mb-4 bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-4 shadow-sm">
     <div>
       <h2 class="font-bold text-gray-800 text-sm">Send Internship Letters</h2>
-      <p class="text-xs text-gray-500">Dispatch signed PDF documents and draft copies directly to student inboxes.</p>
+      <p class="text-xs text-gray-500">Email each student their signed letter (PDF) using the message set in Configuration.</p>
     </div>
     <button type="submit" class="px-5 py-2.5 bg-[#3F7A62] text-white rounded-lg text-sm font-semibold hover:bg-[#2E5B49] transition shadow-sm flex items-center gap-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
@@ -46,43 +65,14 @@
     </button>
   </div>
 
-  <!-- Editable email message -->
-  <div class="mb-4 bg-white border border-[#E1DACB] rounded-xl p-4 shadow-sm">
-    <div class="flex items-center justify-between mb-2">
-      <h3 class="font-bold text-gray-800 text-sm">Email message</h3>
-      <div class="flex items-center gap-2">
-        <button type="button" onclick="resetEmailMessage()"
-                class="text-[11px] bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border border-gray-300 font-medium">
-          Reset to default
-        </button>
-        <button type="submit" formaction="{% url 'letters:save_email_message' %}" formnovalidate
-                class="text-[11px] bg-[#006C6C] hover:bg-[#004D4D] text-white px-3 py-1 rounded font-semibold">
-          💾 Save message
-        </button>
-      </div>
+  <!-- Email message is edited in Configuration -->
+  <div class="mb-4 bg-white border border-[#E1DACB] rounded-xl px-4 py-3 shadow-sm flex flex-wrap items-center justify-between gap-2 text-xs">
+    <div class="text-gray-600">
+      <span class="font-semibold text-gray-800">Email message:</span>
+      <span class="font-mono">{{ saved_email.subject }}</span>
+      <span class="text-gray-400">· each letter type can have its own message</span>
     </div>
-
-    <label for="email_subject" class="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
-    <input type="text" id="email_subject" name="email_subject" maxlength="255"
-           value="{{ saved_email.subject }}"
-           class="w-full border border-[#E1DACB] rounded-lg px-3 py-2 text-sm mb-3 focus:ring-1 focus:ring-[#3F7A62]">
-
-    <label for="email_body" class="block text-xs font-semibold text-gray-600 mb-1">Message</label>
-    <textarea id="email_body" name="email_body" rows="8"
-              class="w-full border border-[#E1DACB] rounded-lg px-3 py-2 text-sm font-mono focus:ring-1 focus:ring-[#3F7A62]">{{ saved_email.body }}</textarea>
-
-    {% if saved_email.updated_by %}
-    <p class="text-[11px] text-gray-400 mb-1">Saved by {{ saved_email.updated_by.username }} on {{ saved_email.updated_at|date:"M d, Y H:i" }}</p>
-    {% endif %}
-    <div class="flex flex-wrap items-center gap-2 mt-2">
-      <span class="text-[11px] text-gray-500">Insert:</span>
-      <button type="button" onclick="insertPh('{name}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{name}</code></button>
-      <button type="button" onclick="insertPh('{student_id}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{student_id}</code></button>
-      <button type="button" onclick="insertPh('{company}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{company}</code></button>
-      <button type="button" onclick="insertPh('{staff_name}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{staff_name}</code></button>
-      <button type="button" onclick="insertPh('{staff_email}')" class="text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{staff_email}</code></button>
-      <span class="text-[11px] text-gray-400 ml-2">Each student gets their own details filled in.</span>
-    </div>
+    <a href="{% url 'letters:email_templates' %}" class="font-semibold text-[#006C6C] hover:underline">Edit in Configuration → Email templates</a>
   </div>
 
   <div class="bg-white border border-[#E1DACB] rounded-xl overflow-hidden shadow-sm">
@@ -243,28 +233,6 @@
 </form>
 
 <script>
-const DEFAULT_SUBJECT = "{{ default_email_subject|escapejs }}";
-const DEFAULT_BODY = "{{ default_email_body|escapejs }}";
-
-function resetEmailMessage() {
-  document.getElementById('email_subject').value = DEFAULT_SUBJECT;
-  document.getElementById('email_body').value = DEFAULT_BODY;
-}
-
-let lastEmailField = null;
-document.addEventListener('DOMContentLoaded', () => {
-  ['email_subject', 'email_body'].forEach(id => {
-    document.getElementById(id).addEventListener('focus', e => { lastEmailField = e.target; });
-  });
-});
-function insertPh(text) {
-  const el = lastEmailField || document.getElementById('email_body');
-  const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? el.value.length;
-  el.value = el.value.slice(0, s) + text + el.value.slice(e);
-  el.focus();
-  el.selectionStart = el.selectionEnd = s + text.length;
-}
-
 function toggleSelectAll(master) {
   document.querySelectorAll('.rec-checkbox:not([disabled])').forEach(cb => {
     cb.checked = master.checked;

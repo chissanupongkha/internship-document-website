@@ -1,0 +1,30 @@
+{% extends 'letters/base.html' %}
+{% block title %}Accounts — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="max-w-6xl">
+  <div class="flex items-center justify-between mt-2 mb-4">
+    <h1 class="text-xl font-semibold">Accounts</h1>
+    <a href="{% url 'letters:user_new' %}" class="bg-ink text-white rounded-lg px-5 py-2 text-sm font-semibold">+ Create account</a>
+  </div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl overflow-x-auto">
+    <table class="w-full text-sm text-left">
+      <thead class="bg-[#FBF9F4] text-xs uppercase text-gray-500"><tr>
+        <th class="p-3">Username</th><th class="p-3">Name</th><th class="p-3">Surname</th><th class="p-3">Role</th>
+        <th class="p-3">Added</th><th class="p-3">Expires</th><th class="p-3">Last sign-in</th><th class="p-3"></th></tr></thead>
+      <tbody class="divide-y divide-[#E1DACB]">
+        {% for u in users %}
+        <tr>
+          <td class="p-3 font-semibold">{{ u.username }}{% if not u.is_active %} <span class="text-xs text-red-600">(off)</span>{% endif %}</td>
+          <td class="p-3">{{ u.first_name }}</td><td class="p-3">{{ u.last_name }}</td>
+          <td class="p-3">{% if u.profile %}{{ u.profile.role_label }}{% elif u.is_superuser %}Admin{% else %}Staff{% endif %}</td>
+          <td class="p-3">{{ u.date_joined|date:"d M Y" }}</td>
+          <td class="p-3">{% if u.profile.expires_on %}{{ u.profile.expires_on|date:"d M Y" }}{% if u.profile.expired %} <span class="text-xs text-red-600">expired</span>{% endif %}{% else %}—{% endif %}</td>
+          <td class="p-3">{{ u.last_login|date:"d M Y H:i"|default:"never" }}</td>
+          <td class="p-3 text-right whitespace-nowrap"><a href="{% url 'letters:audit_logs' %}?user={{ u.id }}" class="text-xs text-blue-700 hover:underline mr-3">Activity</a><a href="{% url 'letters:user_edit' u.id %}" class="text-xs text-blue-700 hover:underline">Edit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,19 +1,28 @@
 {% extends 'letters/base.html' %}
-{% block title %}Audit Logs — Staff Activity{% endblock %}
+{% block title %}Activity log — Internship Letter Generator{% endblock %}
 
 {% block content %}
 <div class="max-w-6xl mx-auto py-2">
   <div class="flex items-center justify-between mb-4">
-    <h1 class="text-2xl font-bold text-gray-800">Staff Activity & Audit Trail</h1>
-    <a href="{% url 'letters:index' %}" class="text-xs text-black hover:underline font-semibold">← Back to Dashboard</a>
+    <h1 class="text-2xl font-bold text-gray-800">Activity log</h1>
+    <a href="{% url 'letters:index' %}" class="text-xs text-black hover:underline font-semibold">← Back</a>
   </div>
   
+  <form method="get" class="flex flex-wrap gap-3 items-end mb-4">
+    <div><label class="block text-xs font-semibold text-gray-600 mb-1">User</label>
+      <select name="user" class="border border-gray-300 rounded px-3 py-2 text-sm bg-white"><option value="">Everyone</option>
+        {% for u in users %}<option value="{{ u.id }}" {% if who == u.id|stringformat:"s" %}selected{% endif %}>{{ u.username }}</option>{% endfor %}</select></div>
+    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Action</label>
+      <select name="action" class="border border-gray-300 rounded px-3 py-2 text-sm bg-white"><option value="">All</option>
+        {% for a in actions %}<option value="{{ a }}" {% if action == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></div>
+    <button class="border border-gray-300 rounded-lg px-4 py-2 text-sm bg-white">Filter</button>
+  </form>
   <div class="bg-white border border-[#E1DACB] shadow-sm rounded-xl overflow-hidden">
     <table class="min-w-full divide-y divide-[#E1DACB]">
       <thead class="bg-[#FBF9F4]">
         <tr>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Timestamp</th>
-          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Staff Member</th>
+          <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</th>
           <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">IP Address</th>
@@ -24,11 +33,11 @@
         <tr class="hover:bg-[#FBF9F4] transition-colors">
           <td class="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
           <td class="px-6 py-4 text-sm font-semibold text-gray-800 whitespace-nowrap">
-            {{ log.user.get_full_name|default:log.user.username|default:"System" }}
+            {% if log.user %}{{ log.user.get_full_name|default:log.user.username }}{% else %}System / deleted user{% endif %}
           </td>
           <td class="px-6 py-4 text-sm whitespace-nowrap">
             <span class="px-2.5 py-1 text-xs rounded-full bg-[#E1EEE6] text-[#3F7A62] font-semibold">
-              {{ log.get_action_display }}
+              {{ log.get_action_display|default:log.action }}
             </span>
           </td>
           <td class="px-6 py-4 text-sm text-gray-600">{{ log.details }}</td>

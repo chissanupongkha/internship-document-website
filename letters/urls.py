@@ -1,6 +1,8 @@
 from django.urls import path
-from . import views
+from . import views, template_editor
 from . import status_views
+from . import report_views
+from . import extra_views
 
 app_name = 'letters'
 
@@ -43,6 +45,10 @@ urlpatterns = [
     # Templates & Management
     path('templates/', views.template_list, name='template_list'),
     path('templates/upload/', views.template_upload, name='template_upload'),
+    path('templates/from-builtin/', views.template_from_builtin, name='template_from_builtin'),
+    path('templates/<int:template_id>/edit/', views.template_edit, name='template_edit'),
+    path('templates/<int:template_id>/editor/', template_editor.template_editor, name='template_editor'),
+    path('templates/<int:template_id>/restore/', template_editor.template_restore, name='template_restore'),
     path('templates/<int:template_id>/mapping/', views.template_mapping, name='template_mapping'),
     path('templates/<int:template_id>/preview/', views.template_preview, name='template_preview'),
     path('templates/<int:template_id>/activate/', views.template_activate, name='template_activate'),
@@ -55,16 +61,31 @@ urlpatterns = [
     path('letter-types/mapping/', views.mapping_create, name='mapping_create'),
     path('mappings/<int:mapping_id>/update/', views.mapping_update, name='mapping_update'),
     path('mappings/<int:mapping_id>/delete/', views.mapping_delete, name='mapping_delete'),
-    path('save-email-message/', views.save_email_message, name='save_email_message'),
     
     # --- add to letters/urls.py -------------------------------------------------
 # (keep your existing imports; add this one)
 
 
 # --- add inside urlpatterns = [ ... ] ---------------------------------------
+    # Document versions, signed upload, settings, accounts, template help
+    path('record/<int:record_id>/docx/', extra_views.record_docx_download, name='record_docx_download'),
+    path('record/<int:record_id>/docx/upload/', extra_views.record_docx_upload, name='record_docx_upload'),
+    path('record/<int:record_id>/pages/', extra_views.record_pages, name='record_pages'),
+    path('signed/upload-manual/', extra_views.signed_upload_manual, name='signed_upload_manual'),
+    path('configuration/email-templates/', extra_views.email_templates, name='email_templates'),
+    path('accounts/', extra_views.user_list, name='user_list'),
+    path('accounts/new/', extra_views.user_form, name='user_new'),
+    path('accounts/<int:pk>/', extra_views.user_form, name='user_edit'),
+    path('templates/starter/', extra_views.template_starter, name='template_starter'),
+
+    # Reports (under Tracking)
+    path('reports/', report_views.report, name='report'),
+    path('reports/export/', report_views.report_export, name='report_export'),
+
     # Request status, students, subjects
     path('status/', status_views.request_status, name='request_status'),
     path('request/<int:record_id>/status/', status_views.document_status, name='document_status'),
+    path('request/<int:record_id>/change/', status_views.record_change, name='record_change'),
     path('subjects/', status_views.subject_list, name='subject_list'),
     path('subjects/save/', status_views.subject_save, name='subject_save'),
     path('subjects/<int:pk>/delete/', status_views.subject_delete, name='subject_delete'),

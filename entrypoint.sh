@@ -1,14 +1,16 @@
 #!/bin/sh
 set -e
 
-# Create required media directories on ephemeral container storage
-mkdir -p /app/media/signed_docs
-mkdir -p /app/media/generated_letters
-mkdir -p /app/media/letter_templates
+# Create required media directories on local disk (mount a volume at MEDIA_ROOT to keep them)
+MEDIA_DIR="${MEDIA_ROOT:-/app/media}"
+mkdir -p "$MEDIA_DIR/signed_docs"
+mkdir -p "$MEDIA_DIR/generated_letters"
+mkdir -p "$MEDIA_DIR/letter_templates" "$MEDIA_DIR/logos"
 
 # Run database migrations
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
+python manage.py load_logos || true
 
 # Safely create superuser if environment variables exist and user doesn't
 if [ "$DJANGO_SUPERUSER_USERNAME" ]; then

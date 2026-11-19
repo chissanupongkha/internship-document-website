@@ -1,0 +1,77 @@
+{% extends 'letters/base.html' %}
+{% block title %}Email templates — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="w-full max-w-6xl px-1 sm:px-4">
+  <p class="text-xs text-gray-500 mt-2">Configuration / Email templates</p>
+  <h1 class="text-2xl font-semibold mb-1">Email templates</h1>
+  <p class="text-sm text-gray-500 mb-5">The message the student receives with each signed letter. A letter type without its own message uses the default.</p>
+
+  <div class="grid lg:grid-cols-[17rem_1fr] gap-5 items-start">
+    <nav class="bg-white border border-[#E1DACB] rounded-xl p-2 space-y-1">
+      {% for it in items %}
+      <a href="?type={{ it.slug }}" class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm {% if it.slug == key %}bg-[#E1EEE6] text-[#1F5E4A] font-semibold{% else %}text-gray-800 hover:bg-[#FBF9F4]{% endif %}">
+        <span>{{ it.name }}</span>
+        {% if it.slug != 'default' %}
+          {% if it.custom %}<span class="text-[11px] px-2 py-0.5 rounded-full bg-[#E1EEE6] text-[#1F5E4A]">Own message</span>
+          {% else %}<span class="text-[11px] px-2 py-0.5 rounded-full bg-[#EFEBDD] text-gray-600">Default</span>{% endif %}
+        {% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+
+    <div class="bg-white border border-[#E1DACB] rounded-xl p-6">
+      <h2 class="text-base font-semibold text-gray-800 mb-1">{% if lt %}{{ lt.display_name }}{% else %}Default for all letter types{% endif %}</h2>
+      {% if uses_default %}
+      <p class="text-xs bg-[#FDF1DC] text-[#8A5A12] rounded-lg px-3 py-2 mb-4">This letter type has no message of its own yet and sends the default one shown below. Saving creates its own message.</p>
+      {% endif %}
+      <form method="post" id="emailForm">
+        {% csrf_token %}
+        <input type="hidden" name="type" value="{{ key }}">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
+        <input id="email_subject" name="email_subject" maxlength="255" value="{{ shown.subject }}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Message</label>
+        <textarea id="email_body" name="email_body" rows="9" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono">{{ shown.body }}</textarea>
+
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+          <span class="text-xs text-gray-500">Insert:</span>
+          <button type="button" data-ph="{name}" class="ph text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{name}</code> student name</button>
+          <button type="button" data-ph="{student_id}" class="ph text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{student_id}</code></button>
+          <button type="button" data-ph="{company}" class="ph text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{company}</code></button>
+          <button type="button" data-ph="{staff_name}" class="ph text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{staff_name}</code></button>
+          <button type="button" data-ph="{staff_email}" class="ph text-[11px] bg-[#FBF9F4] border border-[#E1DACB] rounded px-2 py-0.5 hover:bg-[#E1EEE6]"><code>{staff_email}</code></button>
+        </div>
+        <p class="text-xs text-gray-500 mt-3">The signed letter (PDF) is always attached. Each student gets their own details filled in.</p>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[#E1DACB] mt-5 pt-4">
+          <span class="text-xs text-gray-500">
+            {% if row and row.updated_by %}Last edited {{ row.updated_at|date:"d M Y H:i" }} by {{ row.updated_by.username }}{% elif row %}Last edited {{ row.updated_at|date:"d M Y H:i" }}{% else %}Not edited yet{% endif %}
+          </span>
+          <div class="flex gap-2">
+            {% if lt and row %}<button name="action" value="remove" formnovalidate class="border border-gray-300 rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#FBF9F4]" onclick="return confirm('Use the default message for {{ lt.display_name|escapejs }}?')">Use the default</button>{% endif %}
+            <button name="action" value="reset" formnovalidate class="border border-gray-300 rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#FBF9F4]" onclick="return confirm('Replace the text with the built-in message?')">Reset text</button>
+            <button name="action" value="save" class="bg-[#006C6C] text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-[#004D4D]">Save</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="mt-6">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">What the student reads (sample data)</h3>
+        <div class="rounded-lg border border-[#E1DACB] bg-[#FBF9F4] p-4 text-sm">
+          <div class="font-semibold text-gray-800 mb-2">{{ sample_subject }}</div>
+          <div class="whitespace-pre-line text-gray-700">{{ sample_body }}</div>
+        </div>
+        <p class="text-[11px] text-gray-500 mt-2">Shows the saved text, with a made-up student. Save to refresh it.</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+let last = null;
+['email_subject','email_body'].forEach(id => document.getElementById(id).addEventListener('focus', e => last = e.target));
+document.querySelectorAll('.ph').forEach(b => b.addEventListener('click', () => {
+  const el = last || document.getElementById('email_body'), t = b.dataset.ph;
+  const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? el.value.length;
+  el.value = el.value.slice(0, s) + t + el.value.slice(e); el.focus(); el.selectionStart = el.selectionEnd = s + t.length;
+}));
+</script>
+{% endblock %}

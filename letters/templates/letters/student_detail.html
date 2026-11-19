@@ -12,6 +12,36 @@
     <a href="{% url 'letters:student_edit' student.id %}" class="bg-white border border-[#E1DACB] text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#FBF9F4]">Edit / add subjects</a>
   </div>
 
+  <div class="flex items-baseline justify-between mb-2">
+    <h2 class="text-sm font-semibold text-gray-700">Internship history</h2>
+    <span class="text-xs text-gray-500">{{ history|length }} request(s){% if companies %} · {{ companies|length }} compan{{ companies|length|pluralize:"y,ies" }}{% endif %}</span>
+  </div>
+  <div class="bg-white border border-[#E1DACB] rounded-xl overflow-x-auto shadow-sm mb-6">
+    <table class="w-full text-left text-xs">
+      <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
+        <tr><th class="p-3">Semester</th><th class="p-3">Enrolled course</th><th class="p-3">Company</th>
+            <th class="p-3">Role</th><th class="p-3">Period</th><th class="p-3">Letter</th><th class="p-3">Status</th></tr>
+      </thead>
+      <tbody class="divide-y divide-[#E1DACB]">
+        {% for h in history %}
+        <tr class="align-top">
+          <td class="p-3 whitespace-nowrap">{{ h.record.semester|default:"—" }}</td>
+          <td class="p-3">{{ h.record.course_id|default:"—" }}
+            {% if h.registered %}<div class="text-[10px] text-[#1F5E4A]">registered</div>
+            {% else %}<div class="text-[10px] text-amber-700">not on registration list</div>{% endif %}</td>
+          <td class="p-3">{{ h.record.company|default:"—" }}</td>
+          <td class="p-3">{{ h.record.internship_position|default:"—" }}</td>
+          <td class="p-3 whitespace-nowrap">{{ h.record.period|default:"—" }}</td>
+          <td class="p-3">{{ h.kind }}</td>
+          <td class="p-3"><a href="{% url 'letters:document_status' h.record.id %}" class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold hover:ring-2 hover:ring-[#3F7A62]/40 {{ h.css }}">{{ h.label }}</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="p-6 text-center text-gray-500">No internship requests yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
   <h2 class="text-sm font-semibold text-gray-700 mb-2">Registered subjects and request status</h2>
   <div class="bg-white border border-[#E1DACB] rounded-xl overflow-x-auto shadow-sm mb-6">
     <table class="w-full text-left text-xs">

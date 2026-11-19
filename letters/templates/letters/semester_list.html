@@ -1,0 +1,27 @@
+{% extends 'letters/base.html' %}
+{% block title %}Semesters — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+  <h1 class="text-xl font-semibold mt-2 mb-1">Semesters</h1>
+  <p class="text-sm text-gray-500 mb-6">Once a semester has started, its subjects can no longer be deleted.</p>
+  <form method="post" class="bg-white border border-[#E1DACB] rounded-xl p-5 mb-6 flex flex-wrap items-end gap-4">
+    {% csrf_token %}
+    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Semester</label><input name="code" placeholder="2569/1" class="border border-gray-300 rounded px-3 py-2 text-sm w-32"></div>
+    <div><label class="block text-xs font-semibold text-gray-600 mb-1">Start date</label><input type="date" name="start_date" class="border border-gray-300 rounded px-3 py-2 text-sm"></div>
+    <div><label class="block text-xs font-semibold text-gray-600 mb-1">End date</label><input type="date" name="end_date" class="border border-gray-300 rounded px-3 py-2 text-sm"></div>
+    <button class="bg-ink text-white rounded-lg px-5 py-2 text-sm font-semibold">Save semester</button>
+  </form>
+  <div class="bg-white border border-[#E1DACB] rounded-xl overflow-hidden">
+    <table class="w-full text-sm text-left">
+      <thead class="bg-[#FBF9F4] text-xs uppercase text-gray-500"><tr><th class="p-3">Semester</th><th class="p-3">Start</th><th class="p-3">End</th><th class="p-3">State</th><th class="p-3"></th></tr></thead>
+      <tbody class="divide-y divide-[#E1DACB]">
+        {% for s in semesters %}
+        <tr><td class="p-3 font-semibold">{{ s.code }}</td><td class="p-3">{{ s.start_date|date:"d M Y" }}</td><td class="p-3">{{ s.end_date|date:"d M Y"|default:"—" }}</td>
+          <td class="p-3">{% if s.started %}<span class="text-xs rounded-full bg-amber-100 text-amber-800 px-3 py-1">Started, subjects locked</span>{% else %}<span class="text-xs rounded-full bg-green-100 text-green-800 px-3 py-1">Not started</span>{% endif %}</td>
+          <td class="p-3 text-right"><form method="post" action="{% url 'letters:semester_delete' s.id %}" onsubmit="return confirm('Delete semester {{ s.code }}?')">{% csrf_token %}<button class="text-red-600 hover:underline text-xs">Delete</button></form></td></tr>
+        {% empty %}<tr><td colspan="5" class="p-6 text-center text-gray-500">No semesters yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

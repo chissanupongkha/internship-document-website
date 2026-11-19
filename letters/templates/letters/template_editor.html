@@ -1,0 +1,439 @@
+{% extends 'letters/base.html' %}
+{% block title %}Edit {{ template.label }} — Internship Letter Generator{% endblock %}
+{% block content %}
+{% load static %}
+<style>
+  @font-face{font-family:'TH Sarabun New';src:url("{% static 'fonts/THSarabunNew.ttf' %}");font-weight:400;font-style:normal}
+  @font-face{font-family:'TH Sarabun New';src:url("{% static 'fonts/THSarabunNew Bold.ttf' %}");font-weight:700;font-style:normal}
+  @font-face{font-family:'TH Sarabun New';src:url("{% static 'fonts/THSarabunNew Italic.ttf' %}");font-weight:400;font-style:italic}
+  @font-face{font-family:'TH Sarabun New';src:url("{% static 'fonts/THSarabunNew BoldItalic.ttf' %}");font-weight:700;font-style:italic}
+  #sheetWrap{background:#E6E2D4;padding:1.2rem;overflow:auto;max-height:78vh}
+  #zoomBox{width:max-content;margin:0 auto}
+  .sheet{background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.2);box-sizing:border-box;position:relative}
+  .sheet{outline:none}
+  .item{position:relative}
+  .para{white-space:pre-wrap;tab-size:8;outline:none;word-break:break-word;border-radius:2px;min-height:1em}
+  .para:hover{background:rgba(63,122,98,.06)}.para:focus{background:rgba(63,122,98,.10);box-shadow:0 0 0 1px #3F7A62}
+  .locked{border:1px dashed #cfc7b2;color:#6b6759;font:12px sans-serif;text-align:center;padding:.4rem;border-radius:4px;background:#faf8f2}
+  .pic{display:block;max-width:100%}
+  .pbk{border-top:2px dashed #b9b19a;margin:10px 0;text-align:center;font:11px sans-serif;color:#8a8470;cursor:pointer;position:relative;height:0}
+  .pbk span{position:relative;top:-9px;background:#fff;padding:0 .6rem}
+  .pbk.sel{border-color:#3F7A62;color:#1F5E4A}
+  .etable{border-collapse:collapse;table-layout:fixed;width:100%}
+  .etable td{vertical-align:top;padding:1px 3px}
+  .etable.bord td{border:1px solid #444}
+  .etable.nobord td{outline:1px dotted #d9d3c0}
+  .etable tr.selrow td{background:rgba(63,122,98,.08)}
+  .tb{border:1px solid #d6cfbb;background:#fff;border-radius:6px;padding:.2rem .55rem;font-size:.8rem;font-weight:600;min-width:1.9rem}
+  .tb:hover{background:#f4f1e8}.tb:disabled{opacity:.4}
+  .sel1,.num{border:1px solid #d6cfbb;background:#fff;border-radius:6px;padding:.2rem .3rem;font-size:.8rem}
+  .num{width:3.6rem}
+  .tg{font-family:monospace;font-size:.7rem;background:#f4f1e8;border:1px solid #e1dacb;border-radius:4px;padding:1px 6px}.tg:hover{background:#dff0e6}
+  .sep{width:1px;align-self:stretch;background:#e1dacb;margin:0 .15rem}
+  .grp{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem}
+  .lbl{font-size:.68rem;color:#6b6759;text-transform:uppercase;letter-spacing:.03em}
+</style>
+<div class="w-full max-w-7xl px-1 sm:px-4">
+  <p class="text-xs text-gray-500 mt-2">Configuration / <a href="{% url 'letters:template_list' %}" class="hover:underline">Document templates</a> / {{ template.name }}</p>
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <h1 class="text-2xl font-semibold">Edit {{ template.letter_type }} letter <span class="text-sm text-gray-500 font-normal">v{{ template.version }}</span>
+      <span id="dirty" class="hidden ml-2 text-xs font-semibold bg-[#FDF1DC] text-[#8A5A12] rounded-full px-2 py-0.5 align-middle">Unsaved changes</span></h1>
+    <div class="flex gap-2">
+      <a href="{{ template.file.url }}" download class="border border-gray-300 bg-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#FBF9F4]">Download .docx</a>
+      <a href="{% url 'letters:template_list' %}" class="border border-gray-300 bg-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-[#FBF9F4]">Cancel</a>
+      <button id="saveBtn" class="bg-[#006C6C] text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-[#004D4D]">Save as version {{ next_version }}</button>
+    </div>
+  </div>
+  <div id="err" class="hidden mb-3 rounded-lg bg-[#FBE9E5] text-[#8E2F20] text-sm px-4 py-2"></div>
+
+  <div class="grid lg:grid-cols-[1fr_20rem] gap-5 items-start">
+    <div class="bg-white border border-[#E1DACB] rounded-xl overflow-hidden">
+      <div class="p-3 border-b border-[#E1DACB] space-y-2 sticky top-0 bg-white z-10">
+        <div class="grp">
+          <button type="button" class="tb" data-act="undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+          <button type="button" class="tb" data-act="redo" title="Redo (Ctrl+Y)">↷ Redo</button>
+          <span class="sep"></span>
+          <select id="fontSel" class="sel1" title="Font">
+            <option>TH Sarabun New</option><option>Angsana New</option><option>Cordia New</option>
+            <option>Tahoma</option><option>Times New Roman</option><option>Arial</option>
+          </select>
+          <select id="sizeSel" class="sel1" title="Font size (pt)">
+            <option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option>
+            <option>14</option><option>15</option><option>16</option><option>18</option><option>20</option><option>22</option>
+            <option>24</option><option>28</option><option>32</option><option>36</option>
+          </select>
+          <button type="button" class="tb" data-cmd="bold" title="Bold"><b>B</b></button>
+          <button type="button" class="tb" data-cmd="italic" title="Italic"><i>I</i></button>
+          <button type="button" class="tb" data-cmd="underline" title="Underline"><u>U</u></button>
+          <label class="tb cursor-pointer" title="Text colour">A <input type="color" id="colorIn" value="#000000" style="width:1.4rem;height:1rem;padding:0;border:0;background:transparent;vertical-align:middle"></label>
+          <button type="button" class="tb" data-act="clearfmt" title="Clear character formatting">Tx</button>
+        </div>
+        <div class="grp">
+          <span class="lbl">Align</span>
+          <button type="button" class="tb" data-align="left">Left</button>
+          <button type="button" class="tb" data-align="center">Centre</button>
+          <button type="button" class="tb" data-align="right">Right</button>
+          <button type="button" class="tb" data-align="both">Justify</button>
+          <span class="sep"></span>
+          <span class="lbl">Indent</span>
+          <button type="button" class="tb" data-indent="left:+1" title="Move whole paragraph right 0.5 cm">⇥</button>
+          <button type="button" class="tb" data-indent="left:-1" title="Move whole paragraph left 0.5 cm">⇤</button>
+          <button type="button" class="tb" data-indent="first:+1" title="First line in 1.27 cm">First line +</button>
+          <button type="button" class="tb" data-indent="first:-1" title="First line out 1.27 cm">First line −</button>
+          <span class="sep"></span>
+          <span class="lbl">Line</span>
+          <select id="lineSel" class="sel1" title="Line spacing">
+            <option value="1">1.0</option><option value="1.15">1.15</option><option value="1.2">1.2</option><option value="1.5">1.5</option><option value="2">2.0</option>
+          </select>
+          <span class="lbl">Before</span><input id="beforeIn" type="number" min="0" max="120" step="1" class="num" title="Space before (pt)">
+          <span class="lbl">After</span><input id="afterIn" type="number" min="0" max="120" step="1" class="num" title="Space after (pt)">
+        </div>
+        <div class="grp">
+          <button type="button" class="tb" id="addPara">+ Paragraph</button>
+          <button type="button" class="tb" id="delPara">Delete paragraph</button>
+          <button type="button" class="tb" id="addBreak">+ Page break</button>
+          <span class="sep"></span>
+          <button type="button" class="tb" id="addRow" title="Add a row under the one you are in">+ Table row</button>
+          <button type="button" class="tb" id="delRow">Delete table row</button>
+          <span class="sep"></span>
+          <span class="lbl">Zoom</span>
+          <button type="button" class="tb" id="zoomOut">−</button><span id="zoomVal" class="text-xs w-9 text-center">100%</span><button type="button" class="tb" id="zoomIn">+</button>
+          <button type="button" class="tb" id="zoomFit">Fit</button>
+        </div>
+      </div>
+      <div class="px-3 py-2 border-b border-[#E1DACB] bg-[#FBF9F4] text-xs flex flex-wrap items-center gap-1.5">
+        <span class="text-gray-500">Insert tag:</span>
+        {% for t in tags %}<button type="button" class="tg" data-tag="{{ t.tag }}" title="{{ t.label }}">&#123;&#123; {{ t.tag }} &#125;&#125;</button>{% endfor %}
+      </div>
+      <div id="sheetWrap"><div id="zoomBox"><div class="sheet" id="paper"></div></div></div>
+    </div>
+
+    <div class="space-y-4">
+      <div class="bg-white border border-[#E1DACB] rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-800 mb-2">Checks</h2>
+        <ul id="checks" class="text-xs space-y-1.5 text-gray-700"></ul>
+      </div>
+      <div class="bg-white border border-[#E1DACB] rounded-xl p-4" id="logoCard">
+        <h2 class="text-sm font-semibold text-gray-800 mb-1">Letterhead logo</h2>
+        <p class="text-xs text-gray-600 mb-2">The picture at the top of the letter. Click the logo on the page or pick one here.</p>
+        <div class="grp mb-3"><span class="lbl">Position</span>
+          <button type="button" class="tb" data-logoalign="left">Left</button>
+          <button type="button" class="tb" data-logoalign="center">Centre</button>
+          <button type="button" class="tb" data-logoalign="right">Right</button>
+        </div>
+        <form method="post" action="{% url 'letters:template_edit' template.id %}" enctype="multipart/form-data" id="logoForm">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="editor">
+          <div class="flex flex-wrap gap-2 mb-3">
+            <label class="w-[4.6rem] border rounded-lg p-1.5 text-center cursor-pointer text-[10px] text-gray-500 leading-tight {% if not template.logo %}border-[#006C6C] ring-1 ring-[#006C6C]/40{% else %}border-[#E1DACB]{% endif %}">
+              <div class="h-10 flex items-center justify-center">Keep current</div>
+              <input type="radio" name="logo_id" value="" {% if not template.logo %}checked{% endif %}>
+            </label>
+            {% for logo in logos %}
+            <label class="w-[4.6rem] border rounded-lg p-1.5 text-center cursor-pointer {% if template.logo_id == logo.id %}border-[#006C6C] ring-1 ring-[#006C6C]/40{% else %}border-[#E1DACB]{% endif %}">
+              <img src="{{ logo.image.url }}" alt="{{ logo.name }}" class="h-10 mx-auto object-contain">
+              <div class="text-[10px] leading-tight truncate" title="{{ logo.name }}">{{ logo.name }}</div>
+              <input type="radio" name="logo_id" value="{{ logo.id }}" {% if template.logo_id == logo.id %}checked{% endif %}>
+            </label>
+            {% endfor %}
+          </div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Or upload a new logo (PNG or JPG)</label>
+          <input type="file" name="new_logo" accept="image/png,image/jpeg" class="block text-xs mb-2 w-full">
+          <input type="text" name="new_logo_name" placeholder="Name, e.g. Faculty logo" class="border border-gray-300 rounded px-2 py-1 text-xs w-full mb-2">
+          <button type="submit" class="tb w-full">Apply logo</button>
+          <p class="text-[11px] text-gray-500 mt-2">Applying reloads the page, so save your text edits first.</p>
+        </form>
+      </div>
+      <div class="bg-white border border-[#E1DACB] rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-800 mb-2">What stays the same</h2>
+        <p class="text-xs text-gray-600">Font, size, margins and header come from the previous version. Saving makes a <b>new version</b>; the old one is kept and nothing is used until you activate it.</p>
+      </div>
+      <div class="bg-white border border-[#E1DACB] rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-gray-800 mb-2">History</h2>
+        <ul class="text-xs space-y-2">
+          {% for v in versions %}
+          <li class="flex items-center justify-between gap-2">
+            <span>v{{ v.version }} · {{ v.updated_at|date:"d M Y" }}{% if v.is_active %} <span class="ml-1 px-1.5 py-0.5 rounded-full bg-[#E1EEE6] text-[#1F5E4A] font-semibold">Active</span>{% endif %}{% if v.id == template.id %} <span class="text-gray-400">(editing)</span>{% endif %}</span>
+            <span class="flex gap-2 shrink-0">
+              {% if v.id != template.id %}<a href="{% url 'letters:template_editor' v.id %}" class="font-semibold text-[#006C6C] hover:underline">Open</a>{% endif %}
+              <form method="post" action="{% url 'letters:template_restore' v.id %}" onsubmit="return confirm('Copy v{{ v.version }} as a new version?')">{% csrf_token %}<button class="font-semibold text-gray-700 hover:underline">Restore</button></form>
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="text-[11px] text-gray-500 mt-3">Restore copies that version as the newest one. Nothing is overwritten.</p>
+      </div>
+      <div class="bg-white border border-[#E1DACB] rounded-xl p-4">
+        <a href="{% url 'letters:template_preview' template.id %}" target="_blank" class="text-xs font-semibold text-[#006C6C] hover:underline">Preview this version with a sample student →</a>
+      </div>
+    </div>
+  </div>
+</div>
+{{ items|json_script:"items-data" }}
+{{ tags|json_script:"tags-data" }}
+{{ mapped|json_script:"mapped-data" }}
+{{ page|json_script:"page-data" }}
+<script>
+const items = JSON.parse(document.getElementById('items-data').textContent);
+const page = JSON.parse(document.getElementById('page-data').textContent);
+const knownTags = new Set(JSON.parse(document.getElementById('tags-data').textContent).map(t => t.tag));
+const mapped = new Set(JSON.parse(document.getElementById('mapped-data').textContent));
+const paper = document.getElementById('paper');
+const CM = 28.3465; // pt per cm
+let dirty = false, current = null, currentItem = null;
+const $ = id => document.getElementById(id);
+const markDirty = () => { dirty = true; $('dirty').classList.remove('hidden'); runChecks(); pushSoon(); };
+
+/* ---------- the sheet: same size, margins and default font as the Word file ---------- */
+paper.style.width = page.w + 'cm'; paper.style.minHeight = page.h + 'cm';
+paper.style.padding = `${page.mt}cm ${page.mr}cm ${page.mb}cm ${page.ml}cm`;
+paper.style.fontFamily = `'${page.font}', 'TH Sarabun New', 'Sarabun', serif`;
+paper.style.fontSize = page.size + 'pt'; paper.style.lineHeight = '1.1';
+
+function applyProps(el, pr) {
+  pr = pr || {};
+  const d = el.dataset;
+  d.align = pr.align || 'left'; d.first = pr.first || 0; d.left = pr.left || 0;
+  d.before = pr.before || 0; d.after = pr.after || 0; d.line = pr.line || 1;
+  el.style.textAlign = d.align === 'both' ? 'justify' : d.align;
+  el.style.textIndent = d.first + 'pt'; el.style.paddingLeft = (d.left > 0 ? d.left : 0) + 'pt';
+  el.style.marginTop = d.before + 'pt'; el.style.marginBottom = d.after + 'pt';
+  el.style.lineHeight = (+d.line * 1.1).toFixed(3);
+}
+function readProps(el) {
+  const d = el.dataset;
+  return {align: d.align, first: +d.first, left: +d.left, before: +d.before, after: +d.after, line: +d.line};
+}
+function runSpan(r) {
+  let n = document.createTextNode(r.t);
+  const needsSpan = r.sz || r.col || r.font;
+  if (needsSpan) { const sp = document.createElement('span');
+    if (r.sz) sp.style.fontSize = r.sz + 'pt'; if (r.col) sp.style.color = '#' + r.col; if (r.font) sp.style.fontFamily = `'${r.font}', 'TH Sarabun New'`;
+    sp.appendChild(n); n = sp; }
+  if (r.u) { const e = document.createElement('u'); e.appendChild(n); n = e; }
+  if (r.i) { const e = document.createElement('i'); e.appendChild(n); n = e; }
+  if (r.b) { const e = document.createElement('b'); e.appendChild(n); n = e; }
+  return n;
+}
+function paraEl(it, editable = true) {
+  const d = document.createElement('div');
+  d.className = 'para'; d.contentEditable = editable ? 'true' : 'false';
+  applyProps(d, it.props || {align: it.align});
+  (it.runs || []).forEach(r => d.appendChild(runSpan(r)));
+  return d;
+}
+function wrapOf(el) { return el.closest('.item') || (() => { const w = document.createElement('div'); w.className = 'item'; w.dataset.kind = 'p'; w.appendChild(el); return w; })(); }
+
+function build() {
+  paper.innerHTML = '';
+  items.forEach(it => {
+    const w = document.createElement('div'); w.className = 'item'; w.dataset.kind = it.kind;
+    if (it.src !== undefined && it.src !== null) w.dataset.src = it.src;
+    if (it.kind === 'table') {
+      const t = document.createElement('table'); t.className = 'etable ' + (it.borders ? 'bord' : 'nobord');
+      const cg = document.createElement('colgroup'); (it.widths || []).forEach(x => { const c = document.createElement('col'); c.style.width = x + 'cm'; cg.appendChild(c); }); t.appendChild(cg);
+      it.rows.forEach(row => { const tr = document.createElement('tr'); tr.dataset.src = row.src;
+        row.cells.forEach(cell => { const td = document.createElement('td'); if (cell.span > 1) td.colSpan = cell.span;
+          cell.paras.forEach(p => { const pe = paraEl(p, !p.locked); pe.dataset.cell = '1'; td.appendChild(pe); }); tr.appendChild(td); });
+        t.appendChild(tr); });
+      w.appendChild(t);
+    } else if (it.kind === 'pb') {
+      w.dataset.kind = 'pb'; const b = document.createElement('div'); b.className = 'pbk'; b.innerHTML = '<span>Page break — click to select</span>'; w.appendChild(b);
+    } else if (it.locked) {
+      w.dataset.locked = '1';
+      if (it.pic) { const img = document.createElement('img'); img.src = it.pic.src; img.className = 'pic'; if (it.pic.w) img.style.width = it.pic.w + 'cm'; if (it.pic.h) img.style.height = it.pic.h + 'cm';
+        const box = document.createElement('div'); box.className = 'logobox'; applyProps(box, it.props); box.appendChild(img); w.appendChild(box);
+        img.title = 'Letterhead logo. Click to change it in the panel on the right.'; img.style.cursor = 'pointer'; img.addEventListener('click', () => $('logoCard').scrollIntoView({behavior: 'smooth', block: 'center'})); }
+      else { const n = document.createElement('div'); n.className = 'locked'; n.textContent = it.note || 'Kept as is'; w.appendChild(n); }
+    } else { w.appendChild(paraEl(it)); }
+    paper.appendChild(w);
+  });
+}
+build();
+
+/* ---------- selection helpers ---------- */
+paper.addEventListener('focusin', e => { const p = e.target.closest('.para'); if (p) { current = p; currentItem = p.closest('.item'); syncTools(); } });
+paper.addEventListener('click', e => {
+  const pb = e.target.closest('.pbk');
+  document.querySelectorAll('.pbk.sel').forEach(x => x.classList.remove('sel'));
+  if (pb) { pb.classList.add('sel'); currentItem = pb.closest('.item'); current = null; }
+  else if (!e.target.closest('.para') && e.target.closest('.item')) { currentItem = e.target.closest('.item'); }
+});
+paper.addEventListener('input', markDirty);
+paper.addEventListener('keydown', e => {
+  const para = e.target.closest && e.target.closest('.para'); if (!para) return;
+  if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+  if (e.key === 'Enter' && !e.shiftKey && !para.dataset.cell) {
+    e.preventDefault(); pushNow();
+    const sel = window.getSelection(), r = sel.getRangeAt(0).cloneRange();
+    const tail = document.createRange(); tail.setStart(r.endContainer, r.endOffset); tail.setEnd(para, para.childNodes.length);
+    const nu = paraEl({props: readProps(para), runs: []}); nu.appendChild(tail.extractContents());
+    wrapOf(para).after(wrapOf(nu)); nu.focus(); markDirty();
+  }
+});
+function selectedParas() {
+  const sel = window.getSelection(); if (!sel.rangeCount || !current) return current ? [current] : [];
+  const rg = sel.getRangeAt(0);
+  const out = [...paper.querySelectorAll('.para')].filter(p => rg.intersectsNode(p));
+  return out.length ? out : [current];
+}
+function syncTools() {
+  if (!current) return;
+  const d = current.dataset;
+  $('lineSel').value = ['1', '1.15', '1.2', '1.5', '2'].includes(String(+d.line)) ? String(+d.line) : '1';
+  $('beforeIn').value = +d.before; $('afterIn').value = +d.after;
+  const f = current.querySelector('span[style*="font-size"]');
+  $('sizeSel').value = String(f ? parseFloat(f.style.fontSize) : page.size);
+  $('fontSel').value = page.font;
+}
+
+/* ---------- undo / redo (snapshots of the sheet) ---------- */
+let hist = [], histPos = -1, timer = null;
+function snap() { return paper.innerHTML; }
+function pushNow() { clearTimeout(timer); const s = snap(); if (hist[histPos] === s) return; hist = hist.slice(0, histPos + 1); hist.push(s); if (hist.length > 80) hist.shift(); histPos = hist.length - 1; }
+function pushSoon() { clearTimeout(timer); timer = setTimeout(pushNow, 500); }
+function restore(i) { if (i < 0 || i >= hist.length) return; histPos = i; paper.innerHTML = hist[i]; hist[i] = snap(); current = null; currentItem = null; markDirtyQuiet(); }
+function markDirtyQuiet() { dirty = true; $('dirty').classList.remove('hidden'); runChecks(); }
+pushNow();
+const undo = () => { pushNow(); restore(histPos - 1); }, redo = () => restore(histPos + 1);
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || !paper.contains(document.activeElement) && document.activeElement !== document.body) return;
+  if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+});
+
+/* ---------- collect for saving ---------- */
+function pt(v) { const m = /([\d.]+)(pt|px)/.exec(v || ''); return m ? +(m[2] === 'px' ? m[1] * 0.75 : m[1]) : null; }
+function hex(c) { const m = /rgb\((\d+),\s*(\d+),\s*(\d+)/.exec(c || ''); if (m) return [m[1], m[2], m[3]].map(x => (+x).toString(16).padStart(2, '0')).join('').toUpperCase(); const h = /^#([0-9a-f]{6})$/i.exec(c || ''); return h ? h[1].toUpperCase() : null; }
+function runsOf(el) {
+  const out = [], base = {b: false, i: false, u: false, sz: null, col: null, font: null};
+  (function walk(n, f) {
+    if (n.nodeType === 3) { if (n.textContent) out.push({t: n.textContent, ...f}); return; }
+    if (n.nodeType !== 1) return;
+    const tag = n.tagName, st = n.style || {};
+    const g = {...f};
+    if (tag === 'B' || tag === 'STRONG' || /bold|[6-9]00/.test(st.fontWeight || '')) g.b = true;
+    if (tag === 'I' || tag === 'EM' || st.fontStyle === 'italic') g.i = true;
+    if (tag === 'U' || /underline/.test(st.textDecoration || '')) g.u = true;
+    if (tag === 'FONT') { if (n.color) g.col = hex(n.color) || g.col; if (n.face) g.font = n.face.split(',')[0].replace(/['"]/g, ''); }
+    const s = pt(st.fontSize); if (s) g.sz = s;
+    const c = hex(st.color); if (c) g.col = c;
+    if (st.fontFamily) g.font = st.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+    if (tag === 'BR') { out.push({t: '\n', ...f}); return; }
+    if ((tag === 'DIV' || tag === 'P') && n !== el && out.length) out.push({t: '\n', ...base});
+    n.childNodes.forEach(ch => walk(ch, g));
+  })(el, base);
+  const merged = [], same = (a, b) => a.b === b.b && a.i === b.i && a.u === b.u && a.sz === b.sz && a.col === b.col && a.font === b.font;
+  out.forEach(r => { const l = merged[merged.length - 1]; if (l && same(l, r)) l.t += r.t; else merged.push({...r}); });
+  return merged;
+}
+const paraOut = p => ({props: readProps(p), runs: runsOf(p)});
+function collect() {
+  return [...paper.querySelectorAll(':scope > .item')].map(w => {
+    const src = w.dataset.src === undefined || w.dataset.src === '' ? null : +w.dataset.src;
+    if (w.dataset.kind === 'table') {
+      return {kind: 'table', src, rows: [...w.querySelectorAll('tr')].map(tr => {
+        const cp = tr.dataset.copy;
+        return {src: cp !== undefined ? null : +tr.dataset.src, copy: cp !== undefined ? +cp : null,
+                cells: [...tr.children].map(td => ({paras: [...td.querySelectorAll('.para')].map(paraOut)}))}; })};
+    }
+    if (w.dataset.kind === 'pb') return {kind: 'pb', src};
+    if (w.dataset.locked) { const lb = w.querySelector('.logobox'); return {kind: 'p', src, locked: true, props: lb ? {align: lb.dataset.align} : undefined}; }
+    return {kind: 'p', src, ...paraOut(w.querySelector('.para'))};
+  });
+}
+function allText() { return [...paper.querySelectorAll('.para')].map(p => p.innerText).join('\n'); }
+
+function runChecks() {
+  const text = allText(), found = [...text.matchAll(/\{\{\s*([A-Za-z_][\w.]*)\s*\}\}/g)].map(m => m[1]);
+  const open = (text.match(/\{\{/g) || []).length, close = (text.match(/\}\}/g) || []).length;
+  const unknown = [...new Set(found.filter(t => !knownTags.has(t) && !mapped.has(t)))];
+  const li = (cls, label, msg) => `<li><span class="inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${cls} mr-1.5">${label}</span>${msg}</li>`;
+  const ok = 'bg-[#E1EEE6] text-[#1F5E4A]', warn = 'bg-[#FDF1DC] text-[#8A5A12]', bad = 'bg-[#FBE9E5] text-[#8E2F20]';
+  let h = '';
+  h += open === close ? li(ok, 'OK', `${new Set(found).size} tag(s) in the letter`) : li(bad, 'Fix', 'A tag is missing { { or } }');
+  h += unknown.length ? li(warn, 'Note', `New tag${unknown.length > 1 ? 's' : ''} ${unknown.map(u => '<code>' + u + '</code>').join(', ')}: map ${unknown.length > 1 ? 'them' : 'it'} after saving`) : li(ok, 'OK', 'Every tag is known to the system');
+  $('checks').innerHTML = h;
+  $('saveBtn').disabled = open !== close;
+  $('saveBtn').classList.toggle('opacity-50', open !== close);
+}
+runChecks();
+$('sizeSel').value = String(page.size); if ([...$('fontSel').options].some(o => o.value === page.font)) $('fontSel').value = page.font;
+
+/* ---------- toolbar ---------- */
+const keepSel = (el, fn) => el.addEventListener('mousedown', e => { e.preventDefault(); fn(el, e); });
+function needPara() { if (!current) { alert('Click inside the letter first.'); return false; } return true; }
+document.execCommand('styleWithCSS', false, true);
+
+document.querySelectorAll('button[data-cmd]').forEach(b => keepSel(b, () => { pushNow(); document.execCommand(b.dataset.cmd); markDirty(); }));
+document.querySelectorAll('button[data-align]').forEach(b => keepSel(b, () => { if (!needPara()) return; pushNow();
+  selectedParas().forEach(p => { p.dataset.align = b.dataset.align; applyProps(p, readProps(p)); }); markDirty(); }));
+document.querySelectorAll('button[data-indent]').forEach(b => keepSel(b, () => { if (!needPara()) return; pushNow();
+  const [k, sgn] = b.dataset.indent.split(':'); const step = k === 'left' ? 14.17 : 36;
+  selectedParas().forEach(p => { const v = readProps(p); v[k] = Math.round((+v[k] + (sgn[0] === '+' ? step : -step)) * 10) / 10; if (k === 'left' && v.left < 0) v.left = 0; applyProps(p, v); }); markDirty(); }));
+function setNum(id, key) { $(id).addEventListener('change', () => { if (!needPara()) return; pushNow(); const v = Math.max(0, Math.min(120, +$(id).value || 0));
+  selectedParas().forEach(p => { const r = readProps(p); r[key] = v; applyProps(p, r); }); markDirty(); }); }
+setNum('beforeIn', 'before'); setNum('afterIn', 'after');
+$('lineSel').addEventListener('change', () => { if (!needPara()) return; pushNow(); selectedParas().forEach(p => { const r = readProps(p); r.line = +$('lineSel').value; applyProps(p, r); }); markDirty(); });
+
+function fixSizes(pt_) { paper.querySelectorAll('[style*="xxx-large"]').forEach(n => { n.style.fontSize = pt_ + 'pt'; }); paper.querySelectorAll('font[size="7"]').forEach(f => { const sp = document.createElement('span'); sp.style.fontSize = pt_ + 'pt'; sp.innerHTML = f.innerHTML; f.replaceWith(sp); }); }
+$('sizeSel').addEventListener('change', () => { if (!current) { alert('Select some text first.'); return; } pushNow(); current.focus(); restoreSel(); document.execCommand('fontSize', false, '7'); fixSizes($('sizeSel').value); markDirty(); });
+$('fontSel').addEventListener('change', () => { if (!current) { alert('Select some text first.'); return; } pushNow(); current.focus(); restoreSel(); document.execCommand('fontName', false, $('fontSel').value); markDirty(); });
+$('colorIn').addEventListener('input', () => { if (!current) return; current.focus(); restoreSel(); document.execCommand('foreColor', false, $('colorIn').value); markDirty(); });
+// remember the selection while a dropdown / colour box has focus
+let savedRange = null;
+document.addEventListener('selectionchange', () => { const s = window.getSelection(); if (s.rangeCount && paper.contains(s.anchorNode)) savedRange = s.getRangeAt(0).cloneRange(); });
+function restoreSel() { if (savedRange) { const s = window.getSelection(); s.removeAllRanges(); s.addRange(savedRange); } }
+document.querySelector('[data-act="clearfmt"]').addEventListener('mousedown', e => { e.preventDefault(); pushNow(); document.execCommand('removeFormat'); markDirty(); });
+document.querySelector('[data-act="undo"]').addEventListener('mousedown', e => { e.preventDefault(); undo(); });
+document.querySelector('[data-act="redo"]').addEventListener('mousedown', e => { e.preventDefault(); redo(); });
+
+document.querySelectorAll('button[data-tag]').forEach(b => keepSel(b, () => {
+  if (!current) { alert('Click inside the letter where the tag should go.'); return; } pushNow(); current.focus(); restoreSel();
+  document.execCommand('insertText', false, '\u007b\u007b ' + b.dataset.tag + ' \u007d\u007d'); markDirty(); }));
+
+$('addPara').addEventListener('click', () => { pushNow();
+  const nu = paraEl({props: current ? readProps(current) : {}, runs: []});
+  const anchor = current && !current.dataset.cell ? wrapOf(current) : (currentItem && !currentItem.querySelector('table') ? currentItem : paper.lastElementChild);
+  anchor.after(wrapOf(nu)); nu.focus(); markDirty(); });
+$('delPara').addEventListener('click', () => {
+  const w = current && !current.dataset.cell ? wrapOf(current) : currentItem;
+  if (!w || w.dataset.kind === 'table' || w.querySelector('.para[data-cell]')) { alert('Click a paragraph or a page break first (table cells cannot be deleted; use Delete table row).'); return; }
+  if (w.dataset.locked) { alert('The letterhead logo stays on the letter. Use the Letterhead logo panel to change it.'); return; }
+  if (!confirm(w.dataset.kind === 'pb' ? 'Delete this page break?' : 'Delete this paragraph?')) return;
+  pushNow(); current = null; currentItem = null; w.remove(); markDirty(); });
+$('addBreak').addEventListener('click', () => { pushNow();
+  const w = document.createElement('div'); w.className = 'item'; w.dataset.kind = 'pb'; w.innerHTML = '<div class="pbk"><span>Page break — click to select</span></div>';
+  const anchor = current && !current.dataset.cell ? wrapOf(current) : (currentItem && !currentItem.querySelector('table') ? currentItem : paper.lastElementChild);
+  anchor.after(w); markDirty(); });
+function curRow() { return current && current.dataset.cell ? current.closest('tr') : null; }
+$('addRow').addEventListener('click', () => { const tr = curRow(); if (!tr) { alert('Click inside a table cell first.'); return; } pushNow();
+  const cp = tr.cloneNode(true); cp.dataset.copy = tr.dataset.copy !== undefined ? tr.dataset.copy : tr.dataset.src; cp.removeAttribute('data-src'); tr.after(cp); markDirty(); });
+$('delRow').addEventListener('click', () => { const tr = curRow(); if (!tr) { alert('Click inside a table cell first.'); return; }
+  if (tr.parentElement.children.length <= 1) { alert('A table needs at least one row.'); return; }
+  if (!confirm('Delete this table row?')) return; pushNow(); current = null; tr.remove(); markDirty(); });
+
+document.querySelectorAll('button[data-logoalign]').forEach(b => keepSel(b, () => {
+  const lb = paper.querySelector('.logobox'); if (!lb) { alert('This letter has no logo picture.'); return; }
+  pushNow(); lb.dataset.align = b.dataset.logoalign; lb.style.textAlign = b.dataset.logoalign; markDirty(); }));
+
+/* ---------- zoom ---------- */
+let zoom = 1;
+function setZoom(z) { zoom = Math.max(0.4, Math.min(1.6, z)); $('zoomBox').style.zoom = zoom; $('zoomVal').textContent = Math.round(zoom * 100) + '%'; }
+$('zoomIn').addEventListener('click', () => setZoom(zoom + 0.1)); $('zoomOut').addEventListener('click', () => setZoom(zoom - 0.1));
+function fit() { const avail = $('sheetWrap').clientWidth - 40, need = page.w * CM * 96 / 72; setZoom(Math.min(1, avail / need)); }
+$('zoomFit').addEventListener('click', fit); fit();
+
+/* ---------- save ---------- */
+$('saveBtn').addEventListener('click', async () => {
+  const btn = $('saveBtn'), err = $('err'); err.classList.add('hidden'); btn.disabled = true;
+  try {
+    const r = await fetch(location.href, {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json'}, body: JSON.stringify({items: collect()})});
+    const j = await r.json();
+    if (j.ok) { dirty = false; location.href = j.url; } else { err.textContent = j.error; err.classList.remove('hidden'); btn.disabled = false; }
+  } catch (e) { err.textContent = 'Could not save: ' + e; err.classList.remove('hidden'); btn.disabled = false; }
+});
+$('logoForm').addEventListener('submit', e => { if (dirty && !confirm('You have unsaved text changes. Applying the logo reloads the page and they would be lost. Continue?')) e.preventDefault(); else dirty = false; });
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+</script>
+{% endblock %}

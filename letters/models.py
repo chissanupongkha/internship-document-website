@@ -32,12 +32,12 @@ class StudentRecord(models.Model):
     student_id = models.CharField(max_length=50)
     display_name = models.CharField(max_length=255)
     letter_type = models.CharField(max_length=100)
-    course_id = models.CharField(max_length=50, blank=True, default='')   # e.g., "ITCS499"
+    course_id = models.CharField(max_length=255, blank=True, default='')   # e.g., "ITCS499"
     semester = models.CharField(max_length=20, blank=True, default='')    # e.g., "2026/1"
     times = models.PositiveIntegerField(default=1)                       # 1st time, 2nd time, etc.
     
     # Details
-    year = models.CharField(max_length=10, blank=True, default='')
+    year = models.CharField(max_length=50, blank=True, default='')
     company = models.CharField(max_length=255, blank=True)
     contractor = models.CharField(max_length=255, blank=True)
     contractor_position = models.CharField(max_length=255, blank=True)
@@ -52,12 +52,33 @@ class StudentRecord(models.Model):
         return f"{self.student_id} - {self.display_name} ({self.course_id} {self.semester} #{self.times})"
 
 
+class Logo(models.Model):
+    """A letter logo staff can choose for a document template."""
+    name = models.CharField(max_length=100)
+    image = models.ImageField(upload_to='logos/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class LetterTemplate(models.Model):
+    logo = models.ForeignKey('Logo', null=True, blank=True, on_delete=models.SET_NULL, related_name='templates')
     name = models.CharField(max_length=150)
-    letter_type = models.CharField(max_length=50, unique=True)
+    letter_type = models.CharField(max_length=50)                 # several versions of one type are allowed
+    academic_year = models.CharField(max_length=9, blank=True, default='')   # e.g. "2026"; blank = any year
+    version = models.PositiveIntegerField(default=1)
     file = models.FileField(upload_to='letter_templates/')
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def label(self):
+        year = f"{self.academic_year} " if self.academic_year else ''
+        return f"{year}{self.name} v{self.version}"
 
     def __str__(self):
         return f"{self.name} ({self.letter_type})"
@@ -96,7 +117,10 @@ class GeneratedDocument(models.Model):
     ref_no = models.CharField(max_length=20, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     signed_file = models.FileField(upload_to='signed_docs/', null=True, blank=True)
+    version = models.PositiveIntegerField(default=1)             # only the latest version is kept
+    updated_at = models.DateTimeField(auto_now=True)
     email_sent_at = models.DateTimeField(null=True, blank=True)
+    signed_at = models.DateTimeField(null=True, blank=True)      # when the signed PDF was uploaded
 
     def __str__(self):
         student_name = self.record.display_name if self.record else "Unknown Student"
@@ -165,7 +189,8 @@ class StudentLetter(models.Model):
 
 
 class EmailTemplate(models.Model):
-    """One shared record (pk=1): the saved message for signed-letter emails."""
+    """Message sent with a signed letter. pk=1 with no letter type is the default for every type;
+    a row with a letter type is used only for that type."""
     DEFAULT_SUBJECT = "Signed Internship Letter & Draft - {name}"
     DEFAULT_BODY = (
         "Dear {name},\n\n"
@@ -177,14 +202,23 @@ class EmailTemplate(models.Model):
         "Email: {staff_email}"
     )
 
+    letter_type = models.OneToOneField('LetterType', null=True, blank=True, on_delete=models.CASCADE,
+                                       related_name='email_template')
     subject = models.CharField(max_length=255, default=DEFAULT_SUBJECT)
     body = models.TextField(default=DEFAULT_BODY)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
 
     @classmethod
-    def load(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
+    def load(cls, letter_type=None):
+        """The template for this letter type, or the default one when the type has none."""
+        if letter_type is not None:
+            own = cls.objects.filter(letter_type=letter_type).first()
+            if own:
+                return own
+        obj = cls.objects.filter(letter_type__isnull=True).order_by('pk').first()
+        if obj is None:
+            obj = cls.objects.create()
         return obj
 
 
@@ -197,6 +231,33 @@ class Course(models.Model):
     name = models.CharField(max_length=255, blank=True)
     name_th = models.CharField(max_length=255, blank=True)
     min_year = models.PositiveSmallIntegerField(default=2)       # lowest study year allowed to register (year 1 not allowed)
+    semester = models.CharField(max_length=20, blank=True)       # e.g. "2569/1"
+    start_date = models.DateField(null=True, blank=True)         # once reached, the subject can no longer be deleted
+    end_date = models.DateField(null=True, blank=True)           # last day of the semester (the semester has expired after it)
+
+    @property
+    def label(self):
+        """2026/1 ITCS371 Internship - shown everywhere instead of the bare code."""
+        return " ".join(x for x in (self.semester, self.code, self.name) if x)
+
+    @property
+    def ended(self):
+        from django.utils import timezone
+        return bool(self.end_date and self.end_date < timezone.localdate())
+
+    @property
+    def phase(self):
+        """'upcoming' / 'open' / 'ended' / '' (no dates)."""
+        if self.ended:
+            return 'ended'
+        if self.started:
+            return 'open'
+        return 'upcoming' if self.start_date else ''
+
+    @property
+    def started(self):
+        from django.utils import timezone
+        return bool(self.start_date and self.start_date <= timezone.localdate())
 
     class Meta:
         ordering = ['code']
@@ -209,7 +270,7 @@ class Student(models.Model):
     student_id = models.CharField(max_length=50, unique=True)
     display_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
-    year = models.CharField(max_length=10, blank=True)           # study year, e.g. "3"
+    year = models.CharField(max_length=50, blank=True)           # study year, e.g. "3"
 
     class Meta:
         ordering = ['student_id']
@@ -230,3 +291,64 @@ class Enrollment(models.Model):
 
     def __str__(self):
         return f"{self.student.student_id} - {self.course.code} ({self.semester})"
+
+
+
+class LetterSettings(models.Model):
+    """One shared record (pk=1): values printed on every letter, editable by staff."""
+    ref_prefix = models.CharField("Reference number prefix", max_length=50, default='อว 78.363')
+    letter_date = models.DateField("Fixed letter date", null=True, blank=True,
+                                   help_text="Leave empty to use the date the letter is generated.")
+    course_contact = models.TextField("Course supervisor line", blank=True, default=(
+        "อาจารย์ผู้ดูแลรายวิชา อาจารย์ผศ. ดร.ศิริเพ็ญ พงษ์ไพเชฐ "
+        "อีเมล์ siripen.pon@mahidol.ac.th หรือ โทรศัพท์ 083-0610496"))
+    dean_name = models.CharField(max_length=150, default="(ดร.พัฒนศักดิ์ มงคลวัฒน์)")
+    dean_title = models.CharField(max_length=200, default="คณบดีคณะเทคโนโลยีสารสนเทศและการสื่อสาร")
+    line_spacing = models.DecimalField(max_digits=3, decimal_places=2, default=1.15)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class StaffProfile(models.Model):
+    """Role and account expiry for a staff login. Added date is User.date_joined."""
+    ROLE_ADMIN = 'admin'
+    ROLE_STAFF = 'staff'
+    ROLE_VIEWER = 'viewer'
+    ROLE_CHOICES = [
+        (ROLE_ADMIN, 'Admin: everything, including accounts and configuration'),
+        (ROLE_STAFF, 'Staff: requests, tracking, academic data and reports'),
+        (ROLE_VIEWER, 'Viewer: look only, no changes'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=ROLE_STAFF)
+    expires_on = models.DateField(null=True, blank=True)
+
+    @property
+    def role_label(self):
+        return self.get_role_display().split(':')[0]
+
+    @property
+    def expired(self):
+        from django.utils import timezone
+        return bool(self.expires_on and self.expires_on < timezone.localdate())
+
+
+class ChangeLog(models.Model):
+    """History of admin edits to the company / internship period of a request."""
+    record = models.ForeignKey(StudentRecord, related_name='changes', on_delete=models.CASCADE)
+    field = models.CharField(max_length=30)                      # company | period
+    old_value = models.CharField(max_length=255, blank=True)
+    new_value = models.CharField(max_length=255, blank=True)
+    reason = models.CharField(max_length=255, blank=True)        # e.g. "approved on paper, ref. no. ..."
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at', '-id']
+
+    def __str__(self):
+        return f"{self.record_id} {self.field}: {self.old_value} -> {self.new_value}"

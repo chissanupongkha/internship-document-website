@@ -4,6 +4,15 @@
 {% include 'letters/_status_tabs.html' with active='status' %}
 
 <h1 class="text-xl font-semibold mb-1">Request status by subject</h1>
+<details class="mb-3 text-xs bg-white border border-[#E1DACB] rounded-lg px-3 py-2 max-w-3xl">
+  <summary class="cursor-pointer font-semibold text-gray-700">Need to fix a letter? Edit it in Word and save a new version</summary>
+  <ol class="list-decimal ml-5 mt-2 space-y-1 text-gray-600">
+    <li>Open the student (click the name, then <b>Preview</b>).</li>
+    <li>Click <b>Download .docx to edit</b> and change the file in Word.</li>
+    <li>Choose the edited file and click <b>Upload edited file → new version</b>. The version number goes up (v2, v3 ...).</li>
+  </ol>
+  <p class="mt-2 text-gray-500">Only the latest version is kept. Letters are never regenerated over an edited file.</p>
+</details>
 <p class="text-sm text-gray-500 mb-4">
   Shows which registered students have sent an internship request (Request, Confirm / Referral, Extension) and how far each letter has progressed.
 </p>
@@ -16,7 +25,7 @@
 {% endif %}
 
 <!-- Filters -->
-<form method="get" class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 mb-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+<form method="get" class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 mb-4 grid grid-cols-1 md:grid-cols-8 gap-3 items-end">
   <div class="md:col-span-2">
     <label class="block text-xs font-semibold text-gray-600 mb-1">Search subject (code or name)</label>
     <input type="text" name="q" value="{{ f.q }}" placeholder="e.g. ITCS499 or Internship"
@@ -26,7 +35,7 @@
     <label class="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
     <select name="subject" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
       <option value="">All subjects</option>
-      {% for c in courses %}<option value="{{ c.id }}" {% if f.subject == c.id|stringformat:"s" %}selected{% endif %}>{{ c.code }}</option>{% endfor %}
+      {% for c in courses %}<option value="{{ c.id }}" {% if f.subject == c.id|stringformat:"s" %}selected{% endif %}>{{ c.label }}</option>{% endfor %}
     </select>
   </div>
   <div>
@@ -34,6 +43,23 @@
     <select name="semester" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
       <option value="">All</option>
       {% for s in semesters %}<option value="{{ s }}" {% if f.semester == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Academic year</label>
+    <select name="year" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+      <option value="">All</option>
+      {% for y in years %}<option value="{{ y }}" {% if f.year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Letter status</label>
+    <select name="stage" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">
+      <option value="">Any</option>
+      <option value="received" {% if f.stage == 'received' %}selected{% endif %}>รับคำร้อง</option>
+      <option value="draft" {% if f.stage == 'draft' %}selected{% endif %}>อยู่ระหว่างดำเนินการ</option>
+      <option value="signed" {% if f.stage == 'signed' %}selected{% endif %}>คณบดีลงนามแล้ว</option>
+      <option value="emailed" {% if f.stage == 'emailed' %}selected{% endif %}>ส่งอีเมลแล้ว</option>
     </select>
   </div>
   <div>
@@ -49,7 +75,7 @@
       <option value="requested" {% if f.state == 'requested' %}selected{% endif %}>Requested</option>
     </select>
   </div>
-  <div class="md:col-span-6 flex gap-2">
+  <div class="md:col-span-8 flex gap-2">
     <button type="submit" class="bg-[#006C6C] text-white text-sm font-semibold px-5 py-2 rounded-lg hover:bg-[#004D4D]">Search</button>
     <a href="{% url 'letters:request_status' %}" class="bg-white border border-[#E1DACB] text-sm font-semibold px-5 py-2 rounded-lg hover:bg-[#FBF9F4]">Clear</a>
   </div>

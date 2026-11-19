@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMessage
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
@@ -25,8 +26,10 @@ from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
-from .decorators import staff_required
+from .decorators import get_role, staff_required
 from .docgen import (
+    bake_logo_into_template,
+    pick_template,
     AVAILABLE_SOURCE_FIELDS,
     H_COMPANY,
     H_CONTACT_PERSON,
@@ -61,7 +64,9 @@ from .models import (
     GenerationBatch,
     LetterTemplate,
     LetterType,
+    Course,
     LetterTypeMapping,
+    Logo,
     StudentLetter,
     StudentRecord,
     TemplateFieldMapping,
@@ -141,6 +146,7 @@ def log_activity(request, action, details=""):
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     ip = x_forwarded_for.split(',')[0].strip() if x_forwarded_for else request.META.get('REMOTE_ADDR')
 
+    request._activity_logged = True            # the middleware then skips its generic line
     AuditLog.objects.create(
         user=request.user,
         action=action,
@@ -275,13 +281,25 @@ def _match_and_save_pdf(records, filename, file_content):
     else:
         doc.status = GeneratedDocument.STATUS_GENERATED
 
+    doc.signed_at = timezone.now()
     doc.signed_file.save(os.path.basename(filename), file_content, save=True)
     return True
+
+
+def _norm_header(h):
+    h = re.sub(r'\.\d+$', '', str(h).strip())
+    return re.sub(r'\s+', '', h).lower()
 
 
 def _get_val(row, *keys):
     for key in keys:
         val = row.get(key)
+        if (val is None or str(val).strip() in ('', 'nan')) and hasattr(row, 'items'):
+            t = _norm_header(key)
+            for k, v in row.items():
+                if _norm_header(k) == t and v is not None and str(v).strip() not in ('', 'nan', 'None', 'NaT'):
+                    val = v
+                    break
         if val is None or pd.isna(val):
             continue
         if isinstance(val, float) and val.is_integer():
@@ -298,19 +316,27 @@ def _get_val(row, *keys):
 
 
 def _parse_thai_date(date_str):
-    date_str = date_str.strip()
-    m = re.match(r'(\d{1,2})\s+([^\d]+?)\.?\s*(\d{2,4})?$', date_str)
+    """'1 มิ.ย. 2569', '1มิถุนายน 69', 'กรกฏาคม' spelling variants. Returns (day, month, year|None)."""
+    date_str = (date_str or '').strip()
+    m = re.match(r'(\d{1,2})\s*([^\d]+?)\.?\s*(\d{2,4})?$', date_str)
     if not m:
         return None
 
     day = int(m.group(1))
-    month_raw = m.group(2).strip().rstrip('.')
+    month_raw = m.group(2).strip().rstrip('.').replace('ฏ', 'ฎ')   # กรกฏาคม is a common misspelling
+    month_raw = re.sub(r'\s+', '', month_raw)
     month = THAI_MONTHS.get(month_raw)
     if not month:
         return None
 
     year_raw = m.group(3)
-    year = (int(year_raw) - 543) if year_raw else None
+    if year_raw:
+        y = int(year_raw)
+        if y < 100:            # 69 -> 2569
+            y += 2500
+        year = y - 543 if y > 2400 else y
+    else:
+        year = None
     return day, month, year
 
 
@@ -390,7 +416,12 @@ def login_view(request):
             if not user.is_staff:
                 messages.error(request, "This account does not have staff permissions.")
                 return render(request, 'letters/login.html', {'form': form})
+            profile = getattr(user, 'profile', None) if hasattr(user, 'profile') else None
+            if profile is not None and profile.expired:
+                messages.error(request, "This account has expired. Ask an admin to extend it.")
+                return render(request, 'letters/login.html', {'form': form})
             login(request, user)
+            log_activity(request, 'LOGIN', f"{user.username} signed in")
             request.session.set_expiry(1800)
             next_url = request.GET.get('next')
             return redirect(next_url if next_url else 'letters:index')
@@ -402,6 +433,8 @@ def login_view(request):
 
 
 def logout_view(request):
+    if request.user.is_authenticated:
+        log_activity(request, 'LOGOUT', f"{request.user.username} signed out")
     logout(request)
     return redirect('letters:login')
 
@@ -447,7 +480,8 @@ def index(request):
 @staff_required
 def upload(request):
     # status_views is imported here (not at the top) because it imports this module
-    from .status_views import _check_records, _drop_stash, _load_stash, _stash_upload
+    from .status_views import (_bring_in_students, _check_records, _drop_stash, _load_stash,
+                               _stash_upload, _unlisted_students)
 
     token = request.POST.get('token', '') if request.method == 'POST' else ''
 
@@ -544,11 +578,18 @@ def upload(request):
         messages.error(request, "No valid student records found. Please check column header names.")
         return redirect('letters:index')
 
+    unlisted = _unlisted_students(records)
+
     # ---- first step: check the data and ask before saving anything ----
     if not token:
         checked = _check_records(records)
+        # students missing from the student list get their own tick-box block below
+        for x in checked:
+            x['issues'] = [i for i in x['issues'] if i['code'] != 'no_student']
+            x['worst'] = ('error' if any(i['level'] == 'error' for i in x['issues'])
+                          else ('warn' if x['issues'] else None))
         flagged = [x for x in checked if x['issues']]
-        if flagged or skipped_rows:
+        if flagged or skipped_rows or unlisted:
             problems = []
             for n in skipped_rows:
                 problems.append({'where': f"Excel row {n}", 'level': 'skip', 'who': '(no student ID)',
@@ -561,9 +602,15 @@ def upload(request):
             n_err = sum(1 for x in flagged if x['worst'] == 'error')
             n_warn = sum(1 for x in flagged if x['worst'] == 'warn')
             token = _stash_upload(request, f, 'requests')
+            unlisted_rows = [{'student_id': sid, 'name': (rs[0].display_name or '').strip(),
+                              'year': (rs[0].year or '').strip(),
+                              'subjects': ', '.join(sorted({(r.course_id or '').strip() for r in rs if r.course_id})),
+                              'rows': ', '.join(str(r.row_index + 2) for r in rs[:6]) + (' …' if len(rs) > 6 else '')}
+                             for sid, rs in unlisted.items()]
             return render(request, 'letters/import_confirm.html', {
                 'title': 'Check the request file before uploading',
-                'n_problems': len(problems),
+                'n_problems': len(problems) + len(unlisted_rows),
+                'unlisted': unlisted_rows,
                 'file_name': file_name,
                 'token': token,
                 'action_url': reverse('letters:upload'),
@@ -581,10 +628,23 @@ def upload(request):
             })
 
     # ---- save ----
+    left_out, brought = [], 0
+    if token and unlisted:
+        left_out, brought = _bring_in_students(request, unlisted, set(request.POST.getlist('bring_in')))
+        gone = {id(r) for r in left_out}
+        records = [r for r in records if id(r) not in gone]
+        if not records:
+            _drop_stash(request, token)
+            messages.warning(request, "Nothing was uploaded: every row belonged to a student who is not in the student list and was not confirmed.")
+            return redirect('letters:index')
     batch = UploadedBatch.objects.create(file_name=file_name, uploaded_by=request.user)
     for r in records:
         r.batch = batch
     StudentRecord.objects.bulk_create(records)
+    if brought:
+        messages.info(request, f"{brought} student(s) who were not in the student list were added to the system.")
+    if left_out:
+        messages.warning(request, f"{len(left_out)} row(s) were not uploaded because their students are not in the student list and were not confirmed.")
     if token:
         _drop_stash(request, token)
     messages.success(request, f"Successfully uploaded and extracted {len(records)} record(s).")
@@ -604,7 +664,6 @@ def preview(request, batch_id):
     templates = list(LetterTemplate.objects.prefetch_related('field_mappings').order_by('letter_type', 'name'))
     for t in templates:
         t.mapping_list = list(t.field_mappings.all())
-    active_by_type = {t.letter_type: t for t in templates if t.is_active}
 
     fit_data = {}
     counts = {}
@@ -612,11 +671,12 @@ def preview(request, batch_id):
         kind = resolve_letter_type(r.letter_type)
         base = _build_template_context(r, kind)
 
-        r.default_template_id = active_by_type[kind].id if kind in active_by_type else ''
+        _t = pick_template(kind, r.semester)
+        r.default_template_id = _t.id if _t else ''
         r.missing = [f for f in IMPORTANT_FIELDS if not getattr(r, f).strip()]
         r.year_flag = _check_year_eligibility(r)
         builtin_ok = bool(r.letter_type.strip()) and kind in BUILTIN_KINDS
-        r.supported = builtin_ok or kind in active_by_type
+        r.supported = builtin_ok or _t is not None
 
         clean_type = r.letter_type.strip() if r.letter_type else ""
         r.builtin_label = f"{clean_type} (built-in)" if clean_type else "Built-in layout"
@@ -663,6 +723,17 @@ def record_detail(request, record_id):
             if field_key in request.POST:
                 updated_data[field_key] = request.POST.get(field_key)
 
+        # Company and internship period are only changed by an admin, and every change is recorded.
+        from .status_views import log_changes
+        new_company = _pick(updated_data, H_COMPANY) or record.company
+        new_period = _pick(updated_data, H_PERIOD) or record.period
+        if (new_company != record.company or new_period != record.period):
+            if get_role(request.user) != 'admin':
+                messages.error(request, "Only an admin can change the company or the internship period. "
+                                        "Ask an admin after the change is approved on paper.")
+                return redirect('letters:record_detail', record_id=record.id)
+            log_changes(request, record, new_company, new_period, request.POST.get('change_reason', ''))
+
         record.data = updated_data
         record.company = _pick(updated_data, H_COMPANY) or record.company
         record.contractor = _pick(updated_data, H_CONTACT_PERSON) or record.contractor
@@ -673,7 +744,7 @@ def record_detail(request, record_id):
         record.save()
 
         ref_no = document.ref_no if (document and document.ref_no) else str(2600 + record.row_index)
-        buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no)
+        buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if buf:
             if not document:
                 document = GeneratedDocument(record=record, ref_no=ref_no)
@@ -686,7 +757,7 @@ def record_detail(request, record_id):
 
     if not document or not document.file:
         ref_no = str(2600 + record.row_index)
-        buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no)
+        buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if buf:
             if not document:
                 document = GeneratedDocument.objects.create(
@@ -770,13 +841,29 @@ def add_record(request):
         messages.success(request, f"Added letter request #{new_record.times} for {display_name}.")
         return redirect('letters:record_detail', record_id=new_record.id)
 
-    return render(request, 'letters/add_record.html')
+    letter_types = sorted(set(LetterTypeMapping.objects.values_list('raw_text', flat=True))
+                          | {v.strip() for v in StudentRecord.objects.exclude(letter_type='').values_list('letter_type', flat=True).distinct()})
+    return render(request, 'letters/add_record.html', {
+        'letter_types': letter_types,
+        'courses': Course.objects.all(),
+    })
 
 
 @staff_required
 def audit_logs_view(request):
-    logs = AuditLog.objects.select_related('user').all()[:100]
-    return render(request, 'letters/audit_logs.html', {'logs': logs})
+    logs = AuditLog.objects.select_related('user')
+    who = request.GET.get('user', '').strip()
+    action = request.GET.get('action', '').strip()
+    if who.isdigit():
+        logs = logs.filter(user_id=int(who))
+    if action:
+        logs = logs.filter(action=action)
+    return render(request, 'letters/audit_logs.html', {
+        'logs': logs[:300],
+        'users': User.objects.order_by('username'),
+        'actions': AuditLog.objects.order_by().values_list('action', flat=True).distinct(),
+        'who': who, 'action': action,
+    })
 
 
 @staff_required
@@ -803,8 +890,10 @@ def generate(request, batch_id):
                 for record in records:
                     try:
                         tobj, fb = _chosen_template(request, record, templates_by_id)
-                        buf, filename = generate_for_row(record.data, ref_no="___", template_obj=tobj, force_builtin=fb)
+                        buf, filename = generate_for_row(record.data, ref_no="___", template_obj=tobj, force_builtin=fb, semester=record.semester)
                         if buf:
+                            from .extra_views import save_document_version
+                            save_document_version(record, buf.getvalue(), ref_no=str(record.student_id), file_name=filename)
                             zf.writestr(filename, buf.getvalue())
                             added_count += 1
                         else:
@@ -820,13 +909,16 @@ def generate(request, batch_id):
                         try:
                             ref = str(record.student_id or record.id or "___")
                             tobj, fb = _chosen_template(request, record, templates_by_id)
-                            res = generate_for_row(record.data, ref_no=ref, template_obj=tobj, force_builtin=fb)
+                            res = generate_for_row(record.data, ref_no=ref, template_obj=tobj, force_builtin=fb, semester=record.semester)
                             if not res or res[0] is None:
                                 err_msg = res[1] if res else "Unknown error"
                                 errors.append(f"Record #{record.id}: {err_msg}")
                                 continue
 
                             docx_buf, orig_fname = res
+                            from .extra_views import save_document_version
+                            save_document_version(record, docx_buf.getvalue(), ref_no=str(record.student_id),
+                                                  file_name=orig_fname)
                             pdf_fname = orig_fname.rsplit(".", 1)[0] + ".pdf"
 
                             docx_buf.seek(0)
@@ -1021,7 +1113,7 @@ def download_letter_view(request, record_id, letter_type):
         raise Http404(f"Unknown letter type: '{letter_type}'")
 
     ref_no = str(2600 + record.row_index)
-    buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, kind_override=letter_type)
+    buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, kind_override=letter_type, semester=record.semester)
     if buf is None:
         raise Http404(fname_or_reason)
 
@@ -1127,8 +1219,6 @@ def signed_preview(request, batch_id=None):
         'selected_batch_id': str(selected_batch_id),
         'summary': record_summary,
         'saved_email': saved_email,
-        'default_email_subject': EmailTemplate.DEFAULT_SUBJECT,
-        'default_email_body': EmailTemplate.DEFAULT_BODY,
     })
 
 
@@ -1148,26 +1238,6 @@ def _fill_placeholders(text, record, staff_name, staff_email):
 
 
 @staff_required
-@require_POST
-def save_email_message(request):
-    batch_id = request.POST.get('batch_id', 'all')
-    subject = ' '.join(request.POST.get('email_subject', '').splitlines()).strip()
-    body = request.POST.get('email_body', '').replace('\r\n', '\n').strip()
-
-    if not subject or not body:
-        messages.error(request, "Subject and message cannot be empty.")
-    else:
-        tpl = EmailTemplate.load()
-        tpl.subject = subject
-        tpl.body = body
-        tpl.updated_by = request.user
-        tpl.save()
-        log_activity(request, 'EDIT_EMAIL_MESSAGE', "Saved the signed-letter email message")
-        messages.success(request, "Email message saved. It will be used for all future sends.")
-    return redirect(f"{reverse('letters:signed_preview')}?batch_id={batch_id}")
-
-
-@staff_required
 def send_signed_emails(request):
     if request.method != 'POST':
         return redirect('letters:signed_preview')
@@ -1184,9 +1254,16 @@ def send_signed_emails(request):
     staff_email = request.user.email if request.user.email else settings.DEFAULT_FROM_EMAIL
     staff_name = request.user.get_full_name() or request.user.username
 
-    saved = EmailTemplate.load()
-    subject_tpl = request.POST.get('email_subject', '').strip() or saved.subject
-    body_tpl = request.POST.get('email_body', '').replace('\r\n', '\n').strip() or saved.body
+    # the message comes from Configuration > Email templates: the letter type's own one, else the default
+    from .models import LetterType as _LT
+    _types = {t.slug: t for t in _LT.objects.all()}
+    _tpl_cache = {}
+
+    def _template_for(rec):
+        slug = resolve_letter_type(rec.letter_type)
+        if slug not in _tpl_cache:
+            _tpl_cache[slug] = EmailTemplate.load(_types.get(slug))
+        return _tpl_cache[slug]
 
     sent_count = 0
     failed = []
@@ -1196,6 +1273,8 @@ def send_signed_emails(request):
         doc = GeneratedDocument.objects.filter(record=r).last()
 
         if doc and _field_ready(doc.signed_file) and student_email:
+            _t = _template_for(r)
+            subject_tpl, body_tpl = _t.subject, _t.body
             subject = _fill_placeholders(subject_tpl, r, staff_name, staff_email)
             subject = ' '.join(subject.splitlines())   # header must be one line
             body = _fill_placeholders(body_tpl, r, staff_name, staff_email)
@@ -1276,7 +1355,7 @@ def upload_signed_by_id(request, letter_id):
 
 @staff_required
 def template_list(request):
-    templates = LetterTemplate.objects.order_by('letter_type', '-updated_at')
+    templates = LetterTemplate.objects.order_by('letter_type', '-academic_year', '-version')
     for t in templates:
         mappings = list(t.field_mappings.all())
         t.total_fields = len(mappings)
@@ -1286,6 +1365,7 @@ def template_list(request):
     return render(request, 'letters/template_list.html', {
         'templates': templates,
         'letter_types': letter_types,
+        'builtins': list(__import__('letters.docgen', fromlist=['BUILTIN_TITLES']).BUILTIN_TITLES.items()),
     })
 
 
@@ -1300,12 +1380,15 @@ def template_upload(request):
         messages.error(request, "Please select a valid, existing letter type.")
         return redirect('letters:template_list')
 
+    academic_year = re.sub(r'\D', '', request.POST.get('academic_year', ''))[:4]
     f = request.FILES['template_file']
-    template_obj, created = LetterTemplate.objects.update_or_create(
-        letter_type=letter_type,
-        defaults={'name': f.name, 'file': f, 'is_active': False},
+    last = (LetterTemplate.objects.filter(letter_type=letter_type, academic_year=academic_year)
+            .order_by('-version').first())
+    template_obj = LetterTemplate.objects.create(
+        letter_type=letter_type, academic_year=academic_year, name=f.name, file=f,
+        version=(last.version + 1) if last else 1, is_active=False,
     )
-    template_obj.field_mappings.all().delete()
+    created = last is None
 
     template_obj.file.open('rb')
     try:
@@ -1324,10 +1407,42 @@ def template_upload(request):
     for tag in placeholders:
         TemplateFieldMapping.objects.get_or_create(template=template_obj, placeholder=tag)
 
-    action = 'Replaced' if not created else 'Uploaded'
-    log_activity(request, 'UPLOAD_TEMPLATE', f"{action} template '{f.name}' for '{letter_type}'")
-    messages.success(request, f"{action} '{f.name}'. Map its {len(placeholders)} field(s) before activating.")
+    action = 'Uploaded new version of' if not created else 'Uploaded'
+    log_activity(request, 'UPLOAD_TEMPLATE', f"{action} template '{f.name}' for '{letter_type}' {academic_year or '(any year)'} v{template_obj.version}")
+    messages.success(request, f"Saved as version {template_obj.version}. Map its {len(placeholders)} field(s) before activating. Older versions are kept.")
     return redirect('letters:template_mapping', template_id=template_obj.id)
+
+
+@staff_required
+def template_from_builtin(request):
+    """Turn one of the built-in letters into an editable template version and open it in the editor."""
+    from .docgen import AVAILABLE_SOURCE_FIELDS, BUILTIN_TITLES, build_tagged_letter
+    kind = request.POST.get('kind', '').strip()
+    if request.method != 'POST' or kind not in BUILTIN_TITLES:
+        messages.error(request, "Please choose which built-in letter to edit.")
+        return redirect('letters:template_list')
+    lt, _ = LetterType.objects.get_or_create(slug=kind, defaults={'display_name': BUILTIN_TITLES[kind]})
+    academic_year = re.sub(r'\D', '', request.POST.get('academic_year', ''))[:4]
+    last = (LetterTemplate.objects.filter(letter_type=kind, academic_year=academic_year)
+            .order_by('-version').first())
+    ver = (last.version if last else 0) + 1
+    name = f"{kind}_builtin_v{ver}.docx"
+    t = LetterTemplate(letter_type=kind, academic_year=academic_year, name=name, version=ver, is_active=False)
+    t.file.save(name, ContentFile(build_tagged_letter(kind)), save=True)
+    known = {tag for tag, _label in AVAILABLE_SOURCE_FIELDS}
+    t.file.open('rb')
+    try:
+        tags = extract_fields_from_docx(t.file).get('template_variables') or []
+    finally:
+        t.file.close()
+    for tag in tags:
+        TemplateFieldMapping.objects.get_or_create(
+            template=t, placeholder=tag,
+            defaults={'source_type': TemplateFieldMapping.SOURCE_FIELD if tag in known else TemplateFieldMapping.SOURCE_UNMAPPED,
+                      'source_value': tag if tag in known else ''})
+    log_activity(request, 'UPLOAD_TEMPLATE', f"Made the built-in '{kind}' letter editable as template v{ver}")
+    messages.success(request, "The built-in letter is now an editable template (all tags are already mapped). Change it below, then save, preview and activate.")
+    return redirect('letters:template_editor', template_id=t.id)
 
 
 @staff_required
@@ -1367,7 +1482,7 @@ def preview_record_docx(request, record_id):
     if not doc or not _field_ready(doc.file):
         # no generated Word file saved yet: build it now
         ref_no = doc.ref_no if (doc and doc.ref_no) else str(2600 + record.row_index)
-        buf, fname = generate_for_row(record.data, ref_no=ref_no)
+        buf, fname = generate_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if not buf:
             return HttpResponse("No generated document found for this record.", status=404)
         response = HttpResponse(
@@ -1488,6 +1603,9 @@ def template_activate(request, template_id):
         messages.error(request, f"Can't activate — {unmapped} placeholder(s) still unmapped.")
         return redirect('letters:template_mapping', template_id=template_obj.id)
 
+    # one active version per letter type and academic year
+    LetterTemplate.objects.filter(letter_type=template_obj.letter_type,
+                                  academic_year=template_obj.academic_year).exclude(pk=template_obj.pk).update(is_active=False)
     template_obj.is_active = True
     template_obj.save()
     log_activity(request, 'ACTIVATE_TEMPLATE', f"Activated template #{template_obj.id} for '{template_obj.letter_type}'")
@@ -1542,3 +1660,50 @@ def template_delete(request, template_id):
         log_activity(request, 'DELETE_TEMPLATE', f"Deleted template '{name}'")
         messages.success(request, f"Deleted template '{name}'.")
     return redirect('letters:template_list')
+
+
+
+# ----------------------------------------------------------------------
+# Template editing: choose or upload the letter logo
+# ----------------------------------------------------------------------
+@staff_required
+def template_edit(request, template_id):
+    template_obj = get_object_or_404(LetterTemplate, id=template_id)
+    back = (reverse('letters:template_editor', args=[template_obj.id]) if request.POST.get('next') == 'editor'
+            else reverse('letters:template_edit', args=[template_obj.id]))
+
+    if request.method == 'POST':
+        new_image = request.FILES.get('new_logo')
+        if new_image:
+            if not (new_image.content_type or '').startswith('image/'):
+                messages.error(request, "The logo must be a PNG or JPG image.")
+                return redirect(back)
+            logo = Logo.objects.create(
+                name=request.POST.get('new_logo_name', '').strip() or new_image.name,
+                image=new_image,
+            )
+        else:
+            logo_id = request.POST.get('logo_id', '')
+            logo = Logo.objects.filter(id=logo_id).first() if logo_id else None
+
+        template_obj.logo = logo
+        baked = False
+        if logo:
+            try:
+                baked = bake_logo_into_template(template_obj, logo)
+            except Exception:
+                logger.exception("Could not put logo into template %s", template_obj.pk)
+        template_obj.save()
+        if logo and not baked:
+            messages.warning(request, "No picture was found in this template to replace, so the logo was not applied. Add a placeholder picture to the template header in Word first.")
+        log_activity(request, 'EDIT_TEMPLATE', f"Set logo of '{template_obj.name}' to '{logo.name if logo else 'file default'}'")
+        messages.success(
+            request,
+            "Logo saved. Letters generated from now on use it; earlier letters keep the old logo.",
+        )
+        return redirect(back)
+
+    return render(request, 'letters/template_edit.html', {
+        'template': template_obj,
+        'logos': Logo.objects.all(),
+    })

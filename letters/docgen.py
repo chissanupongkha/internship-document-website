@@ -11,6 +11,7 @@ docgen.py
 ระยะย่อหน้า: 1 แท็บ (1.27 ซม.)
 """
 import io
+from django.core.files.base import ContentFile
 import logging
 import os
 import re
@@ -155,6 +156,45 @@ def resolve_letter_type(raw_val):
 
 
 TAB_INDENT_CM = 1.27
+
+THAI_MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+               "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+
+
+def _cfg():
+    """Editable letter settings (reference prefix, date, dean, supervisor, spacing).
+
+    Falls back to the built-in values when the database is not available, so
+    docgen keeps working outside Django (tests, scripts).
+    """
+    cfg = {
+        'ref_prefix': 'อว 78.363',
+        'letter_date': None,
+        'dean_name': DEAN_TH,
+        'dean_title': DEAN_TITLE_TH,
+        'course_contact': COURSE_CONTACT_TH,
+        'line_spacing': 1.15,
+    }
+    try:
+        from .models import LetterSettings
+        obj = LetterSettings.load()
+        cfg.update({
+            'ref_prefix': obj.ref_prefix or cfg['ref_prefix'],
+            'letter_date': obj.letter_date,
+            'dean_name': obj.dean_name or cfg['dean_name'],
+            'dean_title': obj.dean_title or cfg['dean_title'],
+            'course_contact': obj.course_contact or cfg['course_contact'],
+            'line_spacing': float(obj.line_spacing or cfg['line_spacing']),
+        })
+    except Exception:
+        pass
+    return cfg
+
+
+def _letter_date_th(cfg=None):
+    cfg = cfg or _cfg()
+    d = cfg['letter_date'] or datetime.now()
+    return f"{d.day} {THAI_MONTHS[d.month]} {d.year + 543}"
 FONT_CANDIDATES = ["TH Sarabun New"]
 
 
@@ -185,6 +225,33 @@ _families = _available_font_families()
 PDF_SAFE_FONT = "Sarabun" if any(fam.split(':')[0] == "Sarabun" for fam in _families) else THAI_FONT
 
 
+_RPR_ORDER = ['rStyle', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'caps', 'smallCaps', 'strike', 'dstrike',
+              'outline', 'shadow', 'emboss', 'imprint', 'noProof', 'snapToGrid', 'vanish', 'webHidden',
+              'color', 'spacing', 'w', 'kern', 'position', 'sz', 'szCs', 'highlight', 'u', 'effect',
+              'bdr', 'shd', 'fitText', 'vertAlign', 'rtl', 'cs', 'em', 'lang', 'eastAsianLayout',
+              'specVanish', 'oMath']
+
+
+def _rpr_child(rpr, name):
+    """Find or create <w:name> inside <w:rPr> at its schema position.
+
+    Word is strict about child order; elements appended in the wrong place can
+    make it open the file as 'unreadable' or ignore the formatting.
+    """
+    el = rpr.find(qn('w:' + name))
+    if el is not None:
+        return el
+    el = OxmlElement('w:' + name)
+    idx = _RPR_ORDER.index(name)
+    later = set(_RPR_ORDER[idx + 1:])
+    for child in rpr:
+        if child.tag.split('}')[-1] in later:
+            child.addprevious(el)
+            return el
+    rpr.append(el)
+    return el
+
+
 def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Document:
     theme_attrs = ["asciiTheme", "cstheme", "hAnsiTheme", "eastAsiaTheme"]
 
@@ -204,10 +271,7 @@ def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Doc
                 rPr = OxmlElement('w:rPr')
                 r.insert(0, rPr)
 
-            rFonts = rPr.find(qn('w:rFonts'))
-            if rFonts is None:
-                rFonts = OxmlElement('w:rFonts')
-                rPr.append(rFonts)
+            rFonts = _rpr_child(rPr, 'rFonts')
 
             for attr in theme_attrs:
                 key = qn(f"w:{attr}")
@@ -219,10 +283,7 @@ def apply_thai_font_fix(doc: Document, font_name: str = "TH Sarabun New") -> Doc
             rFonts.set(qn("w:cs"), font_name)
             rFonts.set(qn("w:eastAsia"), font_name)
 
-            lang = rPr.find(qn("w:lang"))
-            if lang is None:
-                lang = OxmlElement("w:lang")
-                rPr.append(lang)
+            lang = _rpr_child(rPr, 'lang')
             lang.set(qn("w:val"), "th-TH")
             lang.set(qn("w:bidi"), "th-TH")
             lang.set(qn("w:eastAsia"), "th-TH")
@@ -281,6 +342,23 @@ def _get_libreoffice_bin():
     return soffice_bin
 
 
+def _norm_header(h):
+    """Ignore stray spaces and pandas' duplicate-column suffix (.1, .2)."""
+    h = re.sub(r'\.\d+$', '', str(h).strip())
+    return re.sub(r'\s+', '', h).lower()
+
+
+def _fuzzy_row_value(row, key):
+    """Find a value by header ignoring spaces / '.N' duplicate suffix.
+    Returns the first non-empty value among matching columns."""
+    target = _norm_header(key)
+    for k, v in row.items():
+        if _norm_header(k) == target:
+            if v is not None and str(v).strip() not in ('', 'nan', 'None', 'NaT'):
+                return v
+    return None
+
+
 def _get_val(row, *keys):
     for key in keys:
         if isinstance(keys[0], (list, tuple)) and not isinstance(key, str):
@@ -291,6 +369,8 @@ def _get_val(row, *keys):
             continue
 
         val = row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+        if (val is None or str(val).strip() == '') and isinstance(row, dict):
+            val = _fuzzy_row_value(row, key)
         if val is None:
             continue
         try:
@@ -325,27 +405,16 @@ def _set_font(run, size=14, bold=False, color=None, name=None):
 
     rpr = run._element.get_or_add_rPr()
 
-    rFonts = rpr.find(qn('w:rFonts'))
-    if rFonts is None:
-        rFonts = rpr.makeelement(qn('w:rFonts'), {})
-        rpr.append(rFonts)
+    rFonts = _rpr_child(rpr, 'rFonts')
     rFonts.set(qn('w:ascii'), name)
     rFonts.set(qn('w:hAnsi'), name)
     rFonts.set(qn('w:cs'), name)
     rFonts.set(qn('w:eastAsia'), name)
 
     if bold:
-        bCs = rpr.find(qn('w:bCs'))
-        if bCs is None:
-            bCs = rpr.makeelement(qn('w:bCs'), {})
-            rpr.append(bCs)
-        bCs.set(qn('w:val'), 'true')
+        _rpr_child(rpr, 'bCs').set(qn('w:val'), 'true')
 
-    szCs = rpr.find(qn('w:szCs'))
-    if szCs is None:
-        szCs = rpr.makeelement(qn('w:szCs'), {})
-        rpr.append(szCs)
-    szCs.set(qn('w:val'), str(int(size * 2)))
+    _rpr_child(rpr, 'szCs').set(qn('w:val'), str(int(size * 2)))
 
     if color:
         run.font.color.rgb = RGBColor(*color)
@@ -354,10 +423,12 @@ def _set_font(run, size=14, bold=False, color=None, name=None):
 def _para(doc, text="", align=WD_ALIGN_PARAGRAPH.LEFT, size=14, bold=False,
           space_after=3, space_before=0, line_spacing=1.2, indent_first=None):
     p = doc.add_paragraph()
+    if align == WD_ALIGN_PARAGRAPH.LEFT and indent_first is not None:
+        align = WD_ALIGN_PARAGRAPH.THAI_JUSTIFY      # body text: even left and right margins
     p.alignment = align
     p.paragraph_format.space_after = Pt(space_after)
     p.paragraph_format.space_before = Pt(space_before)
-    p.paragraph_format.line_spacing = line_spacing
+    p.paragraph_format.line_spacing = _cfg()['line_spacing']     # one setting for the whole letter
     if indent_first is not None:
         p.paragraph_format.first_line_indent = Cm(indent_first)
     if text:
@@ -379,6 +450,13 @@ def _base_doc():
     style = doc.styles['Normal']
     style.font.name = THAI_FONT
     style.font.size = Pt(14)
+    rpr = style.element.get_or_add_rPr()
+    fonts = _rpr_child(rpr, 'rFonts')
+    for attr in ('ascii', 'hAnsi', 'cs', 'eastAsia'):
+        fonts.set(qn('w:' + attr), THAI_FONT)
+    _rpr_child(rpr, 'szCs').set(qn('w:val'), '28')
+    _rpr_child(rpr, 'lang').set(qn('w:bidi'), 'th-TH')
+    style.paragraph_format.line_spacing = _cfg()['line_spacing']
     return doc
 
 
@@ -400,14 +478,9 @@ def _letterhead(doc, faculty_name):
 
 
 def _ref_and_date(doc, ref_no):
-    today = datetime.now()
-    thai_be_year = today.year + 543
-    thai_months = ["", "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
-                   "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
-    date_th = f"{today.day} {thai_months[today.month]} {thai_be_year}"
-    
-    _para(doc, f"ที่ อว 78.363 / {ref_no}", size=14, space_after=0, line_spacing=1.15)
-    _para(doc, f"วันที่ {date_th}", size=14, space_after=3, line_spacing=1.15)
+    cfg = _cfg()
+    _para(doc, f"ที่ {cfg['ref_prefix']} / {ref_no}", size=14, space_after=0)
+    _para(doc, f"วันที่ {_letter_date_th(cfg)}", size=14, space_after=3)
 
 
 def _student_table(doc, rows):
@@ -454,8 +527,9 @@ def _student_table(doc, rows):
 
 def _signature_block(doc):
     _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=4, space_after=40)
-    _para(doc, DEAN_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
-    _para(doc, DEAN_TITLE_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
+    cfg = _cfg()
+    _para(doc, cfg['dean_name'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
+    _para(doc, cfg['dean_title'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
     _para(doc, UNIV_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
 
 
@@ -474,7 +548,7 @@ def _course_label(row):
     else:
         val = getattr(row, 'course_id', '')
     cleaned_val = ' '.join(str(val).split())
-    return cleaned_val.replace(' ', '\u00A0')
+    return cleaned_val
 
 
 def build_confirm_letter(row, ref_no="___"):
@@ -498,8 +572,8 @@ def build_confirm_letter(row, ref_no="___"):
     body = (
         f"ตามที่ บริษัท {company_name} ได้แจ้งความประสงค์ยินดีที่จะรับนักศึกษา"
         f"ระดับปริญญาตรี ชั้นปีที่ {year_level} หลักสูตรวิทยาศาสตรบัณฑิต สาขาวิชาวิทยาการและเทคโนโลยีดิจิทัล "
-        f"ของคณะเทคโนโลยีสารสนเทศและการสื่อสาร มหาวิทยาลัยมหิดล เข้าร่วมฝึกงานกับหน่วยงานของท่าน ซึ่งเป็นส่วนหนึ่งของรายวิชา\u00A0"
-        f"{course}\u00A0เพื่อเพิ่มพูนทักษะและนำความรู้ที่ได้ศึกษามาใช้ในการปฏิบัติงานจริง โดยมีระยะเวลาการฝึกงาน"
+        f"ของคณะเทคโนโลยีสารสนเทศและการสื่อสาร มหาวิทยาลัยมหิดล เข้าร่วมฝึกงานกับหน่วยงานของท่าน ซึ่งเป็นส่วนหนึ่งของรายวิชา "
+        f"{course} เพื่อเพิ่มพูนทักษะและนำความรู้ที่ได้ศึกษามาใช้ในการปฏิบัติงานจริง โดยมีระยะเวลาการฝึกงาน"
         f"ระหว่างวันที่ {period}"
     )
     _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
@@ -516,7 +590,7 @@ def build_confirm_letter(row, ref_no="___"):
         "ทั้งนี้ ในช่วงระหว่างการฝึกงาน อาจารย์นิเทศก์จากทางคณะฯ จะประสานเพื่อขออนุญาตเข้านิเทศนักศึกษา"
         "และเยี่ยมชมการฝึกงานของนักศึกษากับบริษัท ภายหลังสิ้นสุดการฝึกงาน ทางคณะฯ ขอความอนุเคราะห์ท่านทำแบบประเมินผล"
         "การฝึกงานนักศึกษา เพื่อนำข้อมูลไปพัฒนาปรับปรุงหลักสูตรของคณะฯ ต่อไป หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ"
-        f"{COURSE_CONTACT_TH}"
+        f"{_cfg()['course_contact']}"
     )
     _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดทราบและขอขอบคุณมา ณ โอกาสนี้", indent_first=TAB_INDENT_CM, size=14, space_after=0)
@@ -545,7 +619,7 @@ def build_request_letter(row, ref_no="___"):
         f"เนื่องด้วยนักศึกษาระดับปริญญาตรี หลักสูตรวิทยาศาสตรบัณฑิต สาขาวิชาวิทยาการและเทคโนโลยีดิจิทัล (DST) "
         f"ชั้นปีที่ {year_level} ของคณะเทคโนโลยีสารสนเทศและการสื่อสาร (ICT) มหาวิทยาลัยมหิดล "
         f"มีความประสงค์จะขอเข้ารับการฝึกงาน ณ บริษัท {company_name} "
-        f"ซึ่งเป็นส่วนหนึ่งของรายวิชา\u00A0{course}\u00A0เพื่อเพิ่มพูนทักษะและนำความรู้ที่ได้ศึกษามาใช้ในการปฏิบัติงานจริง"
+        f"ซึ่งเป็นส่วนหนึ่งของรายวิชา {course} เพื่อเพิ่มพูนทักษะและนำความรู้ที่ได้ศึกษามาใช้ในการปฏิบัติงานจริง"
     )
     _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
@@ -563,7 +637,7 @@ def build_request_letter(row, ref_no="___"):
         'dept_position': _get_val(r_dict, *H_INTERN_POSITION),
     }])
 
-    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{COURSE_CONTACT_TH}"
+    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{_cfg()['course_contact']}"
     _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดพิจารณาให้ความอนุเคราะห์ จะขอบคุณยิ่ง", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
@@ -591,7 +665,7 @@ def build_extension_letter(row, ref_no="___"):
     body = (
         f"ตามที่ บริษัท {company_name} ได้ให้ความอนุเคราะห์รับนักศึกษาระดับปริญญาตรี หลักสูตรวิทยาศาสตรบัณฑิต "
         f"สาขาวิชาวิทยาการและเทคโนโลยีดิจิทัล (DST) ชั้นปีที่ {year_level} ของคณะเทคโนโลยีสารสนเทศและการสื่อสาร (ICT) "
-        f"มหาวิทยาลัยมหิดล เข้ารับการฝึกงานในรายวิชา\u00A0{course}\u00A0นั้น"
+        f"มหาวิทยาลัยมหิดล เข้ารับการฝึกงานในรายวิชา {course} นั้น"
     )
     _para(doc, body, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
 
@@ -608,11 +682,49 @@ def build_extension_letter(row, ref_no="___"):
         'dept_position': _get_val(r_dict, *H_INTERN_POSITION),
     }])
 
-    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{COURSE_CONTACT_TH}"
+    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{_cfg()['course_contact']}"
     _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดพิจารณาให้ความอนุเคราะห์ จะขอบคุณยิ่ง", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
     return doc
+
+
+BUILTIN_TITLES = {
+    'confirm': 'หนังสือขอส่งตัวฝึกงาน (กรณีที่บริษัทรับเข้าฝึกงานแล้ว)',
+    'request': 'หนังสือขอความอนุเคราะห์รับนักศึกษาเข้าฝึกงาน (กรณียังไม่ได้รับเข้าฝึกงาน)',
+    'extension': 'หนังสือขอขยายระยะเวลาการฝึกงาน',
+}
+
+
+def build_tagged_letter(kind):
+    """The built-in letter with {{ tags }} where the student's data goes, as .docx bytes.
+
+    It is the same layout the system draws by itself, so it can be opened in the
+    editor (or Word), changed, and saved as an ordinary template version.
+    """
+    row = {
+        H_COMPANY[0]: '{{ company }}', H_CONTACT_PERSON[0]: '{{ contact_person }}',
+        H_CONTACT_POSITION[0]: '{{ contact_position }}', H_YEAR_LEVEL[0]: '{{ year_level }}',
+        H_PERIOD[0]: '{{ period }}', H_COURSE[0]: '{{ course }}', H_STUDENT_ID[0]: '{{ student_id }}',
+        H_FIRST_NAME[0]: '{{ student_name }}', H_PREFIX[0]: '', H_LAST_NAME[0]: '',
+        H_DEPARTMENT[0]: '{{ department }}', H_INTERN_POSITION[0]: '{{ internship_position }}',
+    }
+    builder = {'confirm': build_confirm_letter, 'request': build_request_letter,
+               'extension': build_extension_letter}[kind]
+    doc = builder(row, ref_no='___')
+    for para in doc.paragraphs:                     # reference number and date are filled per letter
+        if para.text.startswith('ที่ ') and para.runs:
+            para.runs[0].text = 'ที่ {{ ref_no }}'
+            for r in para.runs[1:]:
+                r.text = ''
+        elif para.text.startswith('วันที่ ') and para.runs:
+            para.runs[0].text = 'วันที่ {{ date_th }}'
+            for r in para.runs[1:]:
+                r.text = ''
+    apply_thai_font_fix(doc, font_name=THAI_FONT)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 
 def _build_template_context(row_or_record, kind, ref_no="___"):
@@ -622,11 +734,8 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
     """
     r_dict = row_or_record if isinstance(row_or_record, dict) else (getattr(row_or_record, 'data', {}) or {})
 
-    today = datetime.now()
-    thai_be_year = today.year + 543
-    thai_months = ["", "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
-                   "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
-    date_th = f"{today.day} {thai_months[today.month]} {thai_be_year}"
+    cfg = _cfg()
+    date_th = _letter_date_th(cfg)
 
     department = _get_val(r_dict, *H_DEPARTMENT)
     internship_position = _get_val(r_dict, *H_INTERN_POSITION)
@@ -636,16 +745,16 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
     course = _course_label(r_dict)
 
     context = {
-        'ref_no': f"อว 78.363 / {ref_no}",
+        'ref_no': f"{cfg['ref_prefix']} / {ref_no}",
         'date_th': date_th,
         'faculty_name': FACULTY_TH if kind == "confirm" else FACULTY_TH_ICT,
         'university_name': UNIV_TH,
         'address_line1': ADDRESS_LINE1_TH,
         'address_line2': ADDRESS_LINE2_TH,
         'tel': TEL_TH,
-        'dean_name': DEAN_TH,
-        'dean_title': DEAN_TITLE_TH,
-        'course_contact': COURSE_CONTACT_TH,
+        'dean_name': cfg['dean_name'],
+        'dean_title': cfg['dean_title'],
+        'course_contact': cfg['course_contact'],
         'student_id': student_id,
         'student_name': student_name,
         'full_name': student_name,
@@ -717,7 +826,72 @@ def _resolve_mapped_context(row_or_record, kind, ref_no, mappings):
 
     return context
 
+def apply_logo(doc, logo_bytes):
+    """Swap the first picture found (header first, then body) for logo_bytes.
+
+    Keeps the picture's width and position and re-computes its height from
+    the new image, so a different logo does not look stretched.
+    Returns True when a picture was replaced.
+    """
+    parts = []
+    for section in doc.sections:
+        if not section.header.is_linked_to_previous:
+            parts.append(section.header.part)
+    parts.append(doc.part)
+
+    for part in parts:
+        blips = part.element.xpath('.//a:blip')
+        if not blips:
+            continue
+        blip = blips[0]
+        rid, img = part.get_or_add_image(BytesIO(logo_bytes))
+        blip.set(qn('r:embed'), rid)
+
+        if img.px_width:
+            ratio = img.px_height / img.px_width
+            for drawing in blip.xpath('ancestor::w:drawing[1]'):
+                for ext in drawing.xpath('.//wp:extent | .//a:ext[@cx]'):
+                    cx = int(ext.get('cx'))
+                    ext.set('cy', str(int(cx * ratio)))
+        return True
+    return False
+
+
+def bake_logo_into_template(template_obj, logo):
+    """Put the chosen logo into the template file itself.
+
+    The logo is part of the template, not something added to every letter.
+    Done once when the logo is chosen, so generating a letter is only
+    "copy the template, fill in the values".
+    Returns True when a picture was replaced.
+    """
+    if not (logo and logo.image):
+        return False
+    logo.image.open('rb')
+    try:
+        logo_bytes = logo.image.read()
+    finally:
+        logo.image.close()
+    template_obj.file.open('rb')
+    try:
+        doc = Document(BytesIO(template_obj.file.read()))
+    finally:
+        template_obj.file.close()
+    if not apply_logo(doc, logo_bytes):
+        return False
+    buf = io.BytesIO()
+    doc.save(buf)
+    name = os.path.basename(template_obj.file.name)
+    template_obj.file.save(name, ContentFile(buf.getvalue()), save=False)
+    return True
+
+
 def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
+    """Copy the template and fill in the values with docxtpl - nothing else.
+
+    Fonts, justification, line spacing and the logo all live in the template
+    file, so the letter comes out exactly as the template looks in Word.
+    """
     mappings = list(template_obj.field_mappings.all()) if hasattr(template_obj, 'field_mappings') else []
     if mappings:
         context = _resolve_mapped_context(row_or_record, kind, ref_no, mappings)
@@ -726,11 +900,10 @@ def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
 
     template_obj.file.open('rb')
     try:
-        doc = DocxTemplate(template_obj.file)
-        doc.render(context)
-        apply_thai_font_fix(doc.docx, font_name=THAI_FONT)
+        doc = DocxTemplate(BytesIO(template_obj.file.read()))   # in-memory copy; the stored template is never touched
     finally:
         template_obj.file.close()
+    doc.render(context)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -738,11 +911,30 @@ def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
     return buf
 
 
-def _try_user_template(row_or_record, kind, ref_no="___"):
+def year_of(semester):
+    """'2026/1' -> '2026'"""
+    return re.split(r'[/\s]', str(semester or '').strip())[0]
+
+
+def pick_template(kind, semester=''):
+    """Active template for this letter type: the one for the letter's academic
+    year if there is one, otherwise the one with no year set."""
+    from .models import LetterTemplate
     template_type = KIND_TO_TEMPLATE_TYPE.get(kind, kind)
+    active = list(LetterTemplate.objects.filter(letter_type=template_type, is_active=True).order_by('-version'))
+    year = year_of(semester)
+    for t in active:
+        if year and t.academic_year == year:
+            return t
+    for t in active:
+        if not t.academic_year:
+            return t
+    return None
+
+
+def _try_user_template(row_or_record, kind, ref_no="___", semester=''):
     try:
-        from .models import LetterTemplate
-        template_obj = LetterTemplate.objects.filter(letter_type=template_type, is_active=True).first()
+        template_obj = pick_template(kind, semester)
         if template_obj is None:
             return None
         return render_with_template(template_obj, row_or_record, kind, ref_no)
@@ -751,7 +943,7 @@ def _try_user_template(row_or_record, kind, ref_no="___"):
         return None
 
 
-def generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, force_builtin=False):
+def generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, force_builtin=False, semester=''):
     if kind_override:
         kind = normalize_letter_type(kind_override)
     else:
@@ -777,7 +969,7 @@ def generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, f
     elif force_builtin:
         custom_buf = None
     else:
-        custom_buf = _try_user_template(row, kind, ref_no)
+        custom_buf = _try_user_template(row, kind, ref_no, semester)
 
     if custom_buf:
         return custom_buf, f"{kind}_{safe_id}_{safe_name}.docx"

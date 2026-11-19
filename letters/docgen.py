@@ -119,7 +119,10 @@ AVAILABLE_SOURCE_FIELDS = [
     ('tel', 'เบอร์โทรศัพท์ / โทรสาร'),
     ('dean_name', 'ชื่อคณบดี'),
     ('dean_title', 'ตำแหน่งคณบดี'),
-    ('course_contact', 'ข้อมูลติดต่ออาจารย์ผู้ดูแลรายวิชา'),
+    ('course_contact', 'ข้อมูลติดต่ออาจารย์ผู้ดูแลรายวิชา (ประโยคเต็ม)'),
+    ('instructor_name', 'ชื่ออาจารย์ผู้ดูแลรายวิชา'),
+    ('instructor_email', 'อีเมล์อาจารย์ผู้ดูแลรายวิชา'),
+    ('instructor_phone', 'โทรศัพท์อาจารย์ผู้ดูแลรายวิชา'),
 ]
 
 
@@ -159,6 +162,40 @@ TAB_INDENT_CM = 1.27
 
 THAI_MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
                "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+
+
+def _compose_contact(name, email, phone):
+    line = f"อาจารย์ผู้ดูแลรายวิชา {name}".strip()
+    if email:
+        line += f" อีเมล์ {email}"
+    if phone:
+        line += (" หรือ" if email else "") + f" โทรศัพท์ {phone}"
+    return line
+
+
+def _contact_parts(r_dict):
+    """(name, email, phone, full sentence) of the instructor of the subject named in this row.
+
+    Comes from the Subjects page; a subject without instructor details uses the shared default line.
+    """
+    if isinstance(r_dict, dict) and r_dict.get('__contact_line__'):          # tag mode (built-in letter -> template)
+        return '', '', '', r_dict['__contact_line__']
+    try:
+        from .models import Course
+        raw = re.sub(r'[^A-Za-z0-9]', '', _get_val(r_dict, *H_COURSE)).upper()
+        if raw:
+            for c in Course.objects.exclude(instructor_name='', instructor_email='', instructor_phone=''):
+                code = re.sub(r'[^A-Za-z0-9]', '', c.code).upper()
+                if code and code in raw:
+                    return (c.instructor_name, c.instructor_email, c.instructor_phone,
+                            _compose_contact(c.instructor_name, c.instructor_email, c.instructor_phone))
+    except Exception:
+        pass
+    return '', '', '', _cfg()['course_contact']
+
+
+def _contact_line(r_dict):
+    return _contact_parts(r_dict)[3]
 
 
 def _cfg():
@@ -590,7 +627,7 @@ def build_confirm_letter(row, ref_no="___"):
         "ทั้งนี้ ในช่วงระหว่างการฝึกงาน อาจารย์นิเทศก์จากทางคณะฯ จะประสานเพื่อขออนุญาตเข้านิเทศนักศึกษา"
         "และเยี่ยมชมการฝึกงานของนักศึกษากับบริษัท ภายหลังสิ้นสุดการฝึกงาน ทางคณะฯ ขอความอนุเคราะห์ท่านทำแบบประเมินผล"
         "การฝึกงานนักศึกษา เพื่อนำข้อมูลไปพัฒนาปรับปรุงหลักสูตรของคณะฯ ต่อไป หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ"
-        f"{_cfg()['course_contact']}"
+        f"{_contact_line(r_dict)}"
     )
     _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดทราบและขอขอบคุณมา ณ โอกาสนี้", indent_first=TAB_INDENT_CM, size=14, space_after=0)
@@ -637,7 +674,7 @@ def build_request_letter(row, ref_no="___"):
         'dept_position': _get_val(r_dict, *H_INTERN_POSITION),
     }])
 
-    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{_cfg()['course_contact']}"
+    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{_contact_line(r_dict)}"
     _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดพิจารณาให้ความอนุเคราะห์ จะขอบคุณยิ่ง", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
@@ -682,7 +719,7 @@ def build_extension_letter(row, ref_no="___"):
         'dept_position': _get_val(r_dict, *H_INTERN_POSITION),
     }])
 
-    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{_cfg()['course_contact']}"
+    closing = f"ทั้งนี้ หากต้องการสอบถามข้อมูลเพิ่มเติม สามารถติดต่อ{_contact_line(r_dict)}"
     _para(doc, closing, align=WD_ALIGN_PARAGRAPH.LEFT, indent_first=TAB_INDENT_CM, size=14, space_after=3)
     _para(doc, "จึงเรียนมาเพื่อโปรดพิจารณาให้ความอนุเคราะห์ จะขอบคุณยิ่ง", indent_first=TAB_INDENT_CM, size=14, space_after=0)
     _signature_block(doc)
@@ -708,6 +745,7 @@ def build_tagged_letter(kind):
         H_PERIOD[0]: '{{ period }}', H_COURSE[0]: '{{ course }}', H_STUDENT_ID[0]: '{{ student_id }}',
         H_FIRST_NAME[0]: '{{ student_name }}', H_PREFIX[0]: '', H_LAST_NAME[0]: '',
         H_DEPARTMENT[0]: '{{ department }}', H_INTERN_POSITION[0]: '{{ internship_position }}',
+        '__contact_line__': '{{ course_contact }}',
     }
     builder = {'confirm': build_confirm_letter, 'request': build_request_letter,
                'extension': build_extension_letter}[kind]
@@ -754,7 +792,10 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
         'tel': TEL_TH,
         'dean_name': cfg['dean_name'],
         'dean_title': cfg['dean_title'],
-        'course_contact': cfg['course_contact'],
+        'course_contact': _contact_parts(r_dict)[3],
+        'instructor_name': _contact_parts(r_dict)[0],
+        'instructor_email': _contact_parts(r_dict)[1],
+        'instructor_phone': _contact_parts(r_dict)[2],
         'student_id': student_id,
         'student_name': student_name,
         'full_name': student_name,

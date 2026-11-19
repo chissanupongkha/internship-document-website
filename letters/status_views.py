@@ -473,6 +473,9 @@ def subject_save(request):
     semester = request.POST.get('semester', '').strip()
     start_date = request.POST.get('start_date', '').strip() or None
     end_date = request.POST.get('end_date', '').strip() or None
+    i_name = request.POST.get('instructor_name', '').strip()[:200]
+    i_email = request.POST.get('instructor_email', '').strip()[:200]
+    i_phone = request.POST.get('instructor_phone', '').strip()[:100]
 
     if semester and not SEMESTER_RE.match(semester):
         messages.error(request, "Semester must look like 2569/1.")
@@ -499,11 +502,13 @@ def subject_save(request):
         course = get_object_or_404(Course, id=int(course_id))
         course.code, course.name, course.name_th, course.min_year = code, name, name_th, min_year
         course.semester, course.start_date, course.end_date = semester, start_date, end_date
+        course.instructor_name, course.instructor_email, course.instructor_phone = i_name, i_email, i_phone
         course.save()
         messages.success(request, f"Subject {code} updated.")
     else:
         Course.objects.create(code=code, name=name, name_th=name_th, min_year=min_year,
-                              semester=semester, start_date=start_date, end_date=end_date)
+                              semester=semester, start_date=start_date, end_date=end_date,
+                              instructor_name=i_name, instructor_email=i_email, instructor_phone=i_phone)
         messages.success(request, f"Subject {code} added.")
     log_activity(request, 'EDIT_SUBJECT', f"Saved subject {code}")
     return redirect('letters:subject_list')

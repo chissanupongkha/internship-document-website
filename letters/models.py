@@ -234,6 +234,9 @@ class Course(models.Model):
     semester = models.CharField(max_length=20, blank=True)       # e.g. "2569/1"
     start_date = models.DateField(null=True, blank=True)         # once reached, the subject can no longer be deleted
     end_date = models.DateField(null=True, blank=True)           # last day of the semester (the semester has expired after it)
+    instructor_name = models.CharField("Supervising instructor", max_length=200, blank=True)
+    instructor_email = models.CharField(max_length=200, blank=True)
+    instructor_phone = models.CharField(max_length=100, blank=True)
 
     @property
     def label(self):

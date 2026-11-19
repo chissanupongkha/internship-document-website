@@ -34,6 +34,14 @@ if not DEBUG and SECRET_KEY == 'dev-only-insecure-key-change-me':
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
+# Render (or any host behind an HTTPS proxy): allow its public host name automatically
+_render_host = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+if _render_host and _render_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_host)
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
+CSRF_TRUSTED_ORIGINS += [f'https://{h}' for h in ALLOWED_HOSTS if h not in ('localhost', '127.0.0.1', '*') and not h.startswith('.')
+                         and f'https://{h}' not in CSRF_TRUSTED_ORIGINS]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')   # the proxy tells Django the request was HTTPS
 
 SESSION_COOKIE_AGE = 7200            # 2 hours
 SESSION_SAVE_EVERY_REQUEST = True    # active users stay logged in

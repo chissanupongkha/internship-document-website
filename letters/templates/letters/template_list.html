@@ -1,113 +1,124 @@
 {% extends 'letters/base.html' %}
+{% load static %}
 {% block title %}Templates — Internship Letter Generator{% endblock %}
 {% block content %}
+<style>
+  @font-face{font-family:'TH Sarabun New';src:url("{% static 'fonts/THSarabunNew.ttf' %}");font-weight:400}
+  @font-face{font-family:'TH Sarabun New';src:url("{% static 'fonts/THSarabunNew Bold.ttf' %}");font-weight:700}
+  .thumb{width:143px;height:202px;overflow:hidden;position:relative;background:#fff;border:1px solid #E1DACB;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);flex:none}
+  .thumb .minisheet{width:21cm;height:29.7cm;overflow:hidden;transform:scale(.18);transform-origin:top left;color:#111;line-height:1.1}
+  .mtag{background:#dff0e6;color:#1F5E4A;border-radius:3px;padding:0 2px}
+  .mlogo{display:inline-block;width:62px;height:62px;border-radius:50%;background:#d9d3c0;color:#8a8470;font:700 12px sans-serif;line-height:62px;text-align:center}
+</style>
 <div class="w-full max-w-none px-1 sm:px-4">
   <h1 class="text-xl font-semibold mt-2 mb-1">Document templates</h1>
   <p class="text-sm text-gray-500 mb-6">
-    Start from the built-in letter, a previous version, or your own Word (.docx) file. Every tag must be mapped before you preview and activate it.
-    Upload a new version for each academic year; older versions are kept. A letter uses the active template for its year, otherwise the one with no year. With no active template it uses the built-in layout.
+    A letter uses the active template of its letter type. With no active template it uses the built-in layout.
+    Saving a change always makes a new version; older versions are kept.
   </p>
 
-  <!-- Guidance -->
-  <details class="bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-5 mb-6" open>
-    <summary class="text-sm font-bold text-gray-700 cursor-pointer">How to change a letter</summary>
-    <ol class="list-decimal ml-5 mt-3 text-sm text-gray-700 space-y-1.5">
-      <li><b>Pick where to start.</b>
-        <ul class="list-disc ml-5 mt-1 space-y-1">
-          <li><b>Edit the built-in letter</b>: opens the system's own letter in the editor. Every tag is already mapped.</li>
-          <li><b>Edit a previous version</b>: opens an earlier template in the editor.</li>
-          <li><b>Upload a Word file</b>: use your own .docx (<a href="{% url 'letters:template_starter' %}" class="font-semibold text-[#006C6C] hover:underline">starter file</a> with all tags). Keep each tag, such as <code class="bg-gray-100 px-1">&#123;&#123; student_name &#125;&#125;</code>, typed in one go with a single font, then map the tags.</li>
-        </ul></li>
-      <li><b>Change the wording</b> in the editor (font, size, colour, indent, spacing, table rows, page breaks and tags). The <b>Letterhead logo</b> panel on the editor page changes the picture at the top of the letter. Saving always makes a new version; the old one is kept.</li>
-            <li>Click <b>Preview</b> to check it with a sample student, then <b>Activate</b>. Activation stays blocked while any tag is unmapped.</li>
-    </ol>
-  </details>
-
-  <!-- Two buttons: upload a Word file, or edit a previous version here -->
   <div class="flex flex-wrap gap-3 mb-4">
-    <button type="button" id="btnBuiltin" class="bg-[#006C6C] text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:bg-[#004D4D]">Edit the built-in letter</button>
-    <button type="button" id="btnUpload" class="bg-[#006C6C] text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:bg-[#004D4D]">Upload a Word file</button>
-    <button type="button" id="btnEdit" class="bg-white border border-[#006C6C] text-[#006C6C] rounded-lg px-5 py-2.5 text-sm font-semibold hover:bg-[#F3FAF8]">Edit a previous version</button>
-  </div>
-  <div id="builtinPicker" class="hidden bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5 mb-6">
-    <form action="{% url 'letters:template_from_builtin' %}" method="post" class="flex flex-wrap items-end gap-3">
-      {% csrf_token %}
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Which built-in letter?</label>
-        <select name="kind" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[22rem]">
-          {% for k, title in builtins %}<option value="{{ k }}">{{ title }}</option>{% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Academic year</label>
-        <input type="text" name="academic_year" inputmode="numeric" maxlength="4" placeholder="e.g. 2026 (blank = any year)" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white w-56">
-      </div>
-      <button class="bg-[#006C6C] text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-[#004D4D]">Open in editor</button>
-      <p class="w-full text-xs text-gray-500">The system's own letter, with its logo and layout, becomes a template you can change. The built-in letter itself is never touched.</p>
-    </form>
-  </div>
-  <div id="editPicker" class="hidden bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5 mb-6">
-    {% if templates %}
-    <form method="get" onsubmit="location.href='/templates/'+this.tid.value+'/editor/'; return false;" class="flex flex-wrap items-end gap-3">
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Which version?</label>
-        <select name="tid" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[20rem]">
-          {% for t in templates %}<option value="{{ t.id }}">{{ t.label }} · {{ t.letter_type }}{% if t.is_active %} (active){% endif %}</option>{% endfor %}
-        </select>
-      </div>
-      <button class="bg-[#006C6C] text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-[#004D4D]">Open editor</button>
-      <p class="w-full text-xs text-gray-500">Change the wording or tags and save. It is saved as a new version; the old one is kept.</p>
-    </form>
-    {% else %}<p class="text-sm text-gray-600">No template yet. Start from the built-in letter or upload a Word file.</p>{% endif %}
+    <button type="button" id="btnUpdate" class="bg-[#006C6C] text-white rounded-lg px-6 py-2.5 text-sm font-semibold hover:bg-[#004D4D]">Update template</button>
+    <button type="button" id="btnCreate" class="bg-white border border-[#006C6C] text-[#006C6C] rounded-lg px-6 py-2.5 text-sm font-semibold hover:bg-[#F3FAF8]">Create template</button>
   </div>
 
-  <!-- Upload form -->
-  <div id="upload-form" class="hidden bg-white border border-[#E1DACB] rounded-xl shadow-sm p-6 mb-8">
-    <h2 class="text-sm font-bold text-gray-700 mb-3">Upload a Word file</h2>
-
-    {% if letter_types %}
-    <form action="{% url 'letters:template_upload' %}" method="post" enctype="multipart/form-data"
-          class="flex flex-wrap items-end gap-4">
+  <!-- Update: pick a letter type, then the template to edit -->
+  <div id="updatePanel" class="hidden bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5 mb-6">
+    <form id="updateForm" method="post" action="{% url 'letters:template_from_builtin' %}" class="flex flex-wrap items-end gap-3">
       {% csrf_token %}
+      <input type="hidden" name="kind" id="updKind" value="">
       <div>
         <label class="block text-xs font-semibold text-gray-600 mb-1">Letter type</label>
-        <select name="letter_type" id="upload_letter_type" required
-                class="border border-gray-300 rounded px-3 py-2 text-sm bg-white min-w-[16rem]">
-          <option value="">Select letter type…</option>
-          {% for lt in letter_types %}
-            <option value="{{ lt.slug }}">{{ lt.display_name }} ({{ lt.slug }})</option>
-          {% endfor %}
+        <select id="updType" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[20rem]">
+          {% for u in update_types %}<option value="{{ u.slug }}">{{ u.name }}</option>{% endfor %}
         </select>
       </div>
-
       <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Academic year</label>
-        <input type="text" name="academic_year" id="upload_academic_year" inputmode="numeric" maxlength="4" placeholder="e.g. 2026 (blank = any year)"
-               class="border border-gray-300 rounded px-3 py-2 text-sm bg-white w-56">
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Template to edit</label>
+        <select id="updTemplate" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[20rem]">
+          {% for u in update_types %}{% if u.builtin %}<option value="builtin" data-type="{{ u.slug }}">Built-in letter (system layout)</option>{% endif %}{% endfor %}
+          {% for t in templates %}<option value="{{ t.id }}" data-type="{{ t.letter_type }}">{{ t.label }}{% if t.is_active %} (active){% endif %}</option>{% endfor %}
+        </select>
       </div>
-
-      <div>
-        <label class="block text-xs font-semibold text-gray-600 mb-1">Template file (.docx)</label>
-        <input type="file" name="template_file" id="upload_template_file" accept=".docx" required
-               class="block text-sm file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-ink file:text-white file:text-sm file:font-medium hover:file:bg-[#004D4D]">
-      </div>
-
-      <button type="submit"
-              class="bg-ink text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:bg-[#004D4D]">
-        Upload &amp; map fields
-      </button>
+      <button id="updGo" class="bg-[#006C6C] text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-[#004D4D]">Open editor</button>
+      <p class="w-full text-xs text-gray-500" id="updNone"></p>
     </form>
-    {% else %}
-    <p class="text-sm text-gray-600">
-      No letter types exist yet.
-      <a href="{% url 'letters:lettertype_list' %}" class="font-semibold text-[#006C6C] hover:underline">Create a letter type first →</a>
-    </p>
-    {% endif %}
+  </div>
+
+  <!-- Create: a new letter type with its first template -->
+  <div id="createPanel" class="hidden bg-white border border-[#E1DACB] rounded-xl shadow-sm p-5 mb-6">
+    <form method="post" action="{% url 'letters:template_create' %}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-3">
+      {% csrf_token %}
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">New letter type name</label>
+        <input type="text" name="display_name" required maxlength="150" placeholder="e.g. หนังสือขอฝึกงานต่างประเทศ" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white w-80">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 mb-1">Word file (.docx), optional</label>
+        <input type="file" name="template_file" accept=".docx" class="block text-sm file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-ink file:text-white file:text-sm file:font-medium">
+      </div>
+      <button class="bg-[#006C6C] text-white rounded-lg px-5 py-2 text-sm font-semibold hover:bg-[#004D4D]">Create</button>
+      <p class="w-full text-xs text-gray-500">
+        Without a file, the new letter type starts from the system's letter and opens in the editor.
+        With a file, you map its tags afterwards (<a href="{% url 'letters:template_starter' %}" class="font-semibold text-[#006C6C] hover:underline">starter file with all tags</a>).
+      </p>
+    </form>
+  </div>
+
+  <!-- How it works -->
+  <div class="grid sm:grid-cols-3 gap-3 mb-6">
+    <div class="bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-4">
+      <div class="text-xs font-bold text-[#006C6C] mb-1">1 · Pick</div>
+      <p class="text-xs text-gray-600"><b>Update template</b> to change a letter you already have. <b>Create template</b> to add a new letter type.</p>
+    </div>
+    <div class="bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-4">
+      <div class="text-xs font-bold text-[#006C6C] mb-1">2 · Edit</div>
+      <p class="text-xs text-gray-600">Change the wording in the editor. Green tags such as <code class="bg-[#dff0e6] text-[#1F5E4A] px-1 rounded">&#123;&#123; student_name &#125;&#125;</code> are filled with each student's data. Change the letterhead logo there too.</p>
+    </div>
+    <div class="bg-[#FCFAF4] border border-[#E1DACB] rounded-xl p-4">
+      <div class="text-xs font-bold text-[#006C6C] mb-1">3 · Preview &amp; activate</div>
+      <p class="text-xs text-gray-600">Check it with a sample student, then <b>Activate</b>. Only one version per letter type is in use; every save keeps the older versions.</p>
+    </div>
+  </div>
+
+  <!-- One card per letter type -->
+  <h2 class="text-sm font-semibold text-gray-600 mb-3">Letters in use</h2>
+  <div class="grid gap-4 md:grid-cols-2 2xl:grid-cols-3 mb-8">
+    {% for c in cards %}
+    <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm p-4 flex gap-4">
+      <div class="thumb">{{ c.mini }}</div>
+      <div class="min-w-0 flex-1 flex flex-col">
+        <div class="font-semibold text-sm text-gray-800 leading-snug">{{ c.name }}</div>
+        <div class="font-mono text-[10px] text-gray-400 mb-2">{{ c.slug }}</div>
+        {% if c.builtin_only %}
+          <span class="self-start inline-flex rounded-full bg-gray-100 text-gray-700 px-2.5 py-0.5 text-[11px] font-semibold mb-2">Built-in layout in use</span>
+          <p class="text-xs text-gray-500 mb-3">No custom template yet. Letters use the system's own layout.</p>
+          <form method="post" action="{% url 'letters:template_from_builtin' %}" class="mt-auto">
+            {% csrf_token %}<input type="hidden" name="kind" value="{{ c.slug }}">
+            <button class="bg-[#006C6C] text-white rounded-lg px-4 py-1.5 text-xs font-semibold hover:bg-[#004D4D]">Customise this letter</button>
+          </form>
+        {% else %}
+          {% if c.shown.is_active %}<span class="self-start inline-flex rounded-full bg-[#E1EEE6] text-[#3F7A62] px-2.5 py-0.5 text-[11px] font-semibold mb-2">Active · v{{ c.shown.version }}</span>
+          {% else %}<span class="self-start inline-flex rounded-full bg-[#F6E7D2] text-[#B4772A] px-2.5 py-0.5 text-[11px] font-semibold mb-2">Not active · latest v{{ c.shown.version }}</span>{% endif %}
+          <p class="text-xs text-gray-500">{{ c.n_versions }} version{{ c.n_versions|pluralize }} · {{ c.shown.mapped_fields }}/{{ c.shown.total_fields }} tags mapped</p>
+          <p class="text-[11px] text-gray-400 mb-3">Updated {{ c.shown.updated_at|date:"M d, Y H:i" }}</p>
+          <div class="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+            <a href="{% url 'letters:template_editor' c.shown.id %}" class="bg-[#006C6C] text-white rounded-lg px-3 py-1.5 font-semibold hover:bg-[#004D4D]">Edit</a>
+            <a href="{% url 'letters:template_preview' c.shown.id %}" target="_blank" class="font-semibold text-gray-800 hover:underline">Preview</a>
+            <a href="{% url 'letters:template_mapping' c.shown.id %}" class="font-semibold text-gray-800 hover:underline">Map tags</a>
+            {% if not c.shown.is_active and c.shown.mapped_fields == c.shown.total_fields %}
+            <form action="{% url 'letters:template_activate' c.shown.id %}" method="post" class="inline">{% csrf_token %}<button class="font-semibold text-[#3F7A62] hover:underline">Activate</button></form>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
   </div>
 
   <!-- Uploaded Templates Table -->
   <div class="flex items-center justify-between mb-3">
-    <h2 class="text-sm font-semibold text-gray-600">Document templates</h2>
+    <h2 class="text-sm font-semibold text-gray-600">All versions</h2>
     <a href="{% url 'letters:lettertype_list' %}" class="text-xs font-semibold text-[#006C6C] hover:underline">Manage letter types →</a>
   </div>
 
@@ -116,7 +127,6 @@
       <thead>
         <tr class="bg-[#FBF9F4] text-xs uppercase tracking-wider text-gray-500 border-b border-[#E1DACB]">
           <th class="py-3 px-4">Letter type</th>
-          <th class="py-3 px-4">Year</th>
           <th class="py-3 px-4">Version</th>
           <th class="py-3 px-4">File Name</th>
           <th class="py-3 px-4">Tags mapped</th>
@@ -129,7 +139,6 @@
         {% for t in templates %}
         <tr class="hover:bg-[#FBF9F4] transition-colors align-middle">
           <td class="py-3 px-4 font-mono text-xs text-gray-700 font-bold">{{ t.letter_type }}</td>
-          <td class="py-3 px-4 text-gray-800">{% if t.academic_year %}{{ t.academic_year }}{% else %}Any{% endif %}</td>
           <td class="py-3 px-4 text-gray-800">v{{ t.version }}</td>
           <td class="py-3 px-4 text-gray-800">{{ t.name }}</td>
           <td class="py-3 px-4 text-gray-800">
@@ -151,12 +160,6 @@
               <a href="{% url 'letters:template_editor' t.id %}" class="font-semibold text-[#006C6C] hover:underline">Edit text</a>
               <a href="{% url 'letters:template_mapping' t.id %}" class="font-semibold text-black hover:underline">Map tags</a>
               <a href="{% url 'letters:template_preview' t.id %}" target="_blank" class="font-semibold text-black hover:underline">Preview</a>
-
-              <!-- Quick Replace Button -->
-              <button type="button" onclick="triggerReplace('{{ t.letter_type }}', '{{ t.academic_year }}')"
-                      class="text-xs font-semibold text-[#006C6C] hover:underline">
-                New version
-              </button>
 
               {% if t.is_active %}
                 <span class="text-xs text-gray-400">In use</span>
@@ -196,22 +199,24 @@
 </div>
 
 <script>
-function triggerReplace(slug, year) {
-  const yr = document.getElementById('upload_academic_year'); if (yr) yr.value = year || '';
-  const sel = document.getElementById('upload_letter_type');
-  const fileIn = document.getElementById('upload_template_file');
-  if (sel && fileIn) {
-    sel.value = slug;
-    fileIn.focus();
-    fileIn.click();
-  }
+const upd = document.getElementById('updatePanel'), cre = document.getElementById('createPanel');
+function only(el) { [upd, cre].forEach(x => { if (x !== el) x.classList.add('hidden'); }); el.classList.toggle('hidden'); }
+document.getElementById('btnUpdate').addEventListener('click', () => only(upd));
+document.getElementById('btnCreate').addEventListener('click', () => only(cre));
+const typeSel = document.getElementById('updType'), tplSel = document.getElementById('updTemplate');
+const allOpts = [...tplSel.options];
+function filterTemplates() {
+  tplSel.innerHTML = '';
+  allOpts.filter(o => o.dataset.type === typeSel.value).forEach(o => tplSel.appendChild(o));
+  const none = !tplSel.options.length;
+  document.getElementById('updGo').disabled = none; document.getElementById('updGo').classList.toggle('opacity-50', none);
+  document.getElementById('updNone').textContent = none ? 'This letter type has no template yet. Use Create template to add one.' : '';
 }
-</script>
-<script>
-const up = document.getElementById('upload-form'), pk = document.getElementById('editPicker'), bi = document.getElementById('builtinPicker');
-function openOnly(el) { [up, pk, bi].forEach(x => { if (x !== el) x.classList.add('hidden'); }); el.classList.toggle('hidden'); }
-document.getElementById('btnUpload').addEventListener('click', () => openOnly(up));
-document.getElementById('btnEdit').addEventListener('click', () => openOnly(pk));
-document.getElementById('btnBuiltin').addEventListener('click', () => openOnly(bi));
+typeSel.addEventListener('change', filterTemplates);
+document.getElementById('updateForm').addEventListener('submit', e => {
+  if (tplSel.value === 'builtin') { document.getElementById('updKind').value = typeSel.value; return; }
+  e.preventDefault(); if (tplSel.value) location.href = '/templates/' + tplSel.value + '/editor/';
+});
+filterTemplates();
 </script>
 {% endblock %}

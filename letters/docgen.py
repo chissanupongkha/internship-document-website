@@ -119,7 +119,6 @@ AVAILABLE_SOURCE_FIELDS = [
     ('tel', 'เบอร์โทรศัพท์ / โทรสาร'),
     ('dean_name', 'ชื่อคณบดี'),
     ('dean_title', 'ตำแหน่งคณบดี'),
-    ('course_contact', 'ข้อมูลติดต่ออาจารย์ผู้ดูแลรายวิชา (ประโยคเต็ม)'),
     ('instructor_name', 'ชื่ออาจารย์ผู้ดูแลรายวิชา'),
     ('instructor_email', 'อีเมล์อาจารย์ผู้ดูแลรายวิชา'),
     ('instructor_phone', 'โทรศัพท์อาจารย์ผู้ดูแลรายวิชา'),
@@ -173,13 +172,16 @@ def _compose_contact(name, email, phone):
     return line
 
 
-def _contact_parts(r_dict):
-    """(name, email, phone, full sentence) of the instructor of the subject named in this row.
+DEFAULT_INSTRUCTOR = ("อาจารย์ผศ. ดร.ศิริเพ็ญ พงษ์ไพเชฐ", "siripen.pon@mahidol.ac.th", "083-0610496")
 
-    Comes from the Subjects page; a subject without instructor details uses the shared default line.
+
+def _contact_parts(r_dict):
+    """(name, email, phone) of the instructor of the subject named in this row (from the Subjects page).
+
+    A subject without instructor details uses the default instructor.
     """
-    if isinstance(r_dict, dict) and r_dict.get('__contact_line__'):          # tag mode (built-in letter -> template)
-        return '', '', '', r_dict['__contact_line__']
+    if isinstance(r_dict, dict) and r_dict.get('__tag_mode__'):          # built-in letter -> template with tags
+        return '{{ instructor_name }}', '{{ instructor_email }}', '{{ instructor_phone }}'
     try:
         from .models import Course
         raw = re.sub(r'[^A-Za-z0-9]', '', _get_val(r_dict, *H_COURSE)).upper()
@@ -187,15 +189,15 @@ def _contact_parts(r_dict):
             for c in Course.objects.exclude(instructor_name='', instructor_email='', instructor_phone=''):
                 code = re.sub(r'[^A-Za-z0-9]', '', c.code).upper()
                 if code and code in raw:
-                    return (c.instructor_name, c.instructor_email, c.instructor_phone,
-                            _compose_contact(c.instructor_name, c.instructor_email, c.instructor_phone))
+                    return c.instructor_name, c.instructor_email, c.instructor_phone
     except Exception:
         pass
-    return '', '', '', _cfg()['course_contact']
+    return DEFAULT_INSTRUCTOR
 
 
 def _contact_line(r_dict):
-    return _contact_parts(r_dict)[3]
+    """The sentence printed at the end of the built-in letters, built from the instructor's name, email and phone."""
+    return _compose_contact(*_contact_parts(r_dict))
 
 
 def _cfg():
@@ -209,7 +211,6 @@ def _cfg():
         'letter_date': None,
         'dean_name': DEAN_TH,
         'dean_title': DEAN_TITLE_TH,
-        'course_contact': COURSE_CONTACT_TH,
         'line_spacing': 1.15,
     }
     try:
@@ -220,7 +221,6 @@ def _cfg():
             'letter_date': obj.letter_date,
             'dean_name': obj.dean_name or cfg['dean_name'],
             'dean_title': obj.dean_title or cfg['dean_title'],
-            'course_contact': obj.course_contact or cfg['course_contact'],
             'line_spacing': float(obj.line_spacing or cfg['line_spacing']),
         })
     except Exception:
@@ -726,8 +726,8 @@ def build_extension_letter(row, ref_no="___"):
     return doc
 
 
-BUILTIN_TITLES = {
-    'confirm': 'หนังสือขอส่งตัวฝึกงาน (กรณีที่บริษัทรับเข้าฝึกงานแล้ว)',
+BUILTIN_TITLES = {                      # keyed by the template's letter type (see KIND_TO_TEMPLATE_TYPE)
+    'confirmation': 'หนังสือขอส่งตัวฝึกงาน (กรณีที่บริษัทรับเข้าฝึกงานแล้ว)',
     'request': 'หนังสือขอความอนุเคราะห์รับนักศึกษาเข้าฝึกงาน (กรณียังไม่ได้รับเข้าฝึกงาน)',
     'extension': 'หนังสือขอขยายระยะเวลาการฝึกงาน',
 }
@@ -745,8 +745,9 @@ def build_tagged_letter(kind):
         H_PERIOD[0]: '{{ period }}', H_COURSE[0]: '{{ course }}', H_STUDENT_ID[0]: '{{ student_id }}',
         H_FIRST_NAME[0]: '{{ student_name }}', H_PREFIX[0]: '', H_LAST_NAME[0]: '',
         H_DEPARTMENT[0]: '{{ department }}', H_INTERN_POSITION[0]: '{{ internship_position }}',
-        '__contact_line__': '{{ course_contact }}',
+        '__tag_mode__': True,
     }
+    kind = {v: k for k, v in KIND_TO_TEMPLATE_TYPE.items()}.get(kind, kind)
     builder = {'confirm': build_confirm_letter, 'request': build_request_letter,
                'extension': build_extension_letter}[kind]
     doc = builder(row, ref_no='___')
@@ -792,7 +793,6 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
         'tel': TEL_TH,
         'dean_name': cfg['dean_name'],
         'dean_title': cfg['dean_title'],
-        'course_contact': _contact_parts(r_dict)[3],
         'instructor_name': _contact_parts(r_dict)[0],
         'instructor_email': _contact_parts(r_dict)[1],
         'instructor_phone': _contact_parts(r_dict)[2],
@@ -958,19 +958,11 @@ def year_of(semester):
 
 
 def pick_template(kind, semester=''):
-    """Active template for this letter type: the one for the letter's academic
-    year if there is one, otherwise the one with no year set."""
+    """The active template of this letter type (None = use the built-in layout)."""
     from .models import LetterTemplate
     template_type = KIND_TO_TEMPLATE_TYPE.get(kind, kind)
-    active = list(LetterTemplate.objects.filter(letter_type=template_type, is_active=True).order_by('-version'))
-    year = year_of(semester)
-    for t in active:
-        if year and t.academic_year == year:
-            return t
-    for t in active:
-        if not t.academic_year:
-            return t
-    return None
+    return (LetterTemplate.objects.filter(letter_type__in={template_type, kind}, is_active=True)
+            .order_by('-version').first())
 
 
 def _try_user_template(row_or_record, kind, ref_no="___", semester=''):

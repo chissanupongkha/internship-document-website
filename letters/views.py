@@ -1355,17 +1355,43 @@ def upload_signed_by_id(request, letter_id):
 
 @staff_required
 def template_list(request):
-    templates = LetterTemplate.objects.order_by('letter_type', '-academic_year', '-version')
+    from .docgen import BUILTIN_TITLES, build_tagged_letter
+    from .template_editor import mini_preview_html
+    templates = list(LetterTemplate.objects.order_by('letter_type', '-version'))
     for t in templates:
         mappings = list(t.field_mappings.all())
         t.total_fields = len(mappings)
         t.mapped_fields = len([m for m in mappings if m.source_type != TemplateFieldMapping.SOURCE_UNMAPPED])
 
     letter_types = LetterType.objects.order_by('display_name')
+    names = {lt.slug: lt.display_name for lt in letter_types}
+    cards = []
+    slugs = list(dict.fromkeys([t.letter_type for t in templates] + [lt.slug for lt in letter_types] + list(BUILTIN_TITLES)))
+    for slug in slugs:
+        mine = [t for t in templates if t.letter_type == slug]
+        shown = next((t for t in mine if t.is_active), mine[0] if mine else None)
+        if shown is None and slug not in BUILTIN_TITLES:
+            continue                                    # a letter type nobody has made a template for yet
+        card = {'slug': slug, 'name': names.get(slug) or BUILTIN_TITLES.get(slug, slug), 'shown': shown,
+                'n_versions': len(mine), 'builtin_only': shown is None}
+        try:
+            if shown is not None:
+                shown.file.open('rb')
+                try:
+                    card['mini'] = mini_preview_html(shown.file.read())
+                finally:
+                    shown.file.close()
+            else:
+                card['mini'] = mini_preview_html(build_tagged_letter(slug))
+        except Exception:
+            logger.exception("Could not draw the template thumbnail")
+            card['mini'] = ''
+        cards.append(card)
     return render(request, 'letters/template_list.html', {
         'templates': templates,
+        'cards': cards,
         'letter_types': letter_types,
-        'builtins': list(__import__('letters.docgen', fromlist=['BUILTIN_TITLES']).BUILTIN_TITLES.items()),
+        'update_types': _update_types(letter_types),
     })
 
 
@@ -1380,12 +1406,11 @@ def template_upload(request):
         messages.error(request, "Please select a valid, existing letter type.")
         return redirect('letters:template_list')
 
-    academic_year = re.sub(r'\D', '', request.POST.get('academic_year', ''))[:4]
     f = request.FILES['template_file']
-    last = (LetterTemplate.objects.filter(letter_type=letter_type, academic_year=academic_year)
+    last = (LetterTemplate.objects.filter(letter_type=letter_type)
             .order_by('-version').first())
     template_obj = LetterTemplate.objects.create(
-        letter_type=letter_type, academic_year=academic_year, name=f.name, file=f,
+        letter_type=letter_type, name=f.name, file=f,
         version=(last.version + 1) if last else 1, is_active=False,
     )
     created = last is None
@@ -1408,7 +1433,7 @@ def template_upload(request):
         TemplateFieldMapping.objects.get_or_create(template=template_obj, placeholder=tag)
 
     action = 'Uploaded new version of' if not created else 'Uploaded'
-    log_activity(request, 'UPLOAD_TEMPLATE', f"{action} template '{f.name}' for '{letter_type}' {academic_year or '(any year)'} v{template_obj.version}")
+    log_activity(request, 'UPLOAD_TEMPLATE', f"{action} template '{f.name}' for '{letter_type}' v{template_obj.version}")
     messages.success(request, f"Saved as version {template_obj.version}. Map its {len(placeholders)} field(s) before activating. Older versions are kept.")
     return redirect('letters:template_mapping', template_id=template_obj.id)
 
@@ -1422,13 +1447,21 @@ def template_from_builtin(request):
         messages.error(request, "Please choose which built-in letter to edit.")
         return redirect('letters:template_list')
     lt, _ = LetterType.objects.get_or_create(slug=kind, defaults={'display_name': BUILTIN_TITLES[kind]})
-    academic_year = re.sub(r'\D', '', request.POST.get('academic_year', ''))[:4]
-    last = (LetterTemplate.objects.filter(letter_type=kind, academic_year=academic_year)
+    last = (LetterTemplate.objects.filter(letter_type=kind)
             .order_by('-version').first())
     ver = (last.version if last else 0) + 1
     name = f"{kind}_builtin_v{ver}.docx"
-    t = LetterTemplate(letter_type=kind, academic_year=academic_year, name=name, version=ver, is_active=False)
+    t = LetterTemplate(letter_type=kind, name=name, version=ver, is_active=False)
     t.file.save(name, ContentFile(build_tagged_letter(kind)), save=True)
+    _premapped_tags(t)
+    log_activity(request, 'UPLOAD_TEMPLATE', f"Made the built-in '{kind}' letter editable as template v{ver}")
+    messages.success(request, "The built-in letter is now an editable template (all tags are already mapped). Change it below, then save, preview and activate.")
+    return redirect('letters:template_editor', template_id=t.id)
+
+
+def _premapped_tags(t):
+    """Map every tag of a template that has the same name as a system field; returns the tag list."""
+    from .docgen import AVAILABLE_SOURCE_FIELDS
     known = {tag for tag, _label in AVAILABLE_SOURCE_FIELDS}
     t.file.open('rb')
     try:
@@ -1440,8 +1473,60 @@ def template_from_builtin(request):
             template=t, placeholder=tag,
             defaults={'source_type': TemplateFieldMapping.SOURCE_FIELD if tag in known else TemplateFieldMapping.SOURCE_UNMAPPED,
                       'source_value': tag if tag in known else ''})
-    log_activity(request, 'UPLOAD_TEMPLATE', f"Made the built-in '{kind}' letter editable as template v{ver}")
-    messages.success(request, "The built-in letter is now an editable template (all tags are already mapped). Change it below, then save, preview and activate.")
+    return tags
+
+
+def _update_types(letter_types):
+    """Letter types that can be updated: every saved type plus the built-in letters."""
+    from .docgen import BUILTIN_TITLES
+    out = [{'slug': lt.slug, 'name': lt.display_name, 'builtin': lt.slug in BUILTIN_TITLES} for lt in letter_types]
+    have = {o['slug'] for o in out}
+    out += [{'slug': k, 'name': title, 'builtin': True} for k, title in BUILTIN_TITLES.items() if k not in have]
+    return out
+
+
+@staff_required
+def template_create(request):
+    """Create a template for a NEW letter type, from the system's letter or from an uploaded Word file."""
+    from django.utils.text import slugify
+    from .docgen import build_tagged_letter
+    if request.method != 'POST':
+        return redirect('letters:template_list')
+    name = request.POST.get('display_name', '').strip()[:150]
+    if not name:
+        messages.error(request, "Please give the new letter type a name.")
+        return redirect('letters:template_list')
+    if LetterType.objects.filter(display_name__iexact=name).exists():
+        messages.error(request, f"A letter type named '{name}' already exists. Use Update template to edit it.")
+        return redirect('letters:template_list')
+    up = request.FILES.get('template_file')
+    if up and not up.name.lower().endswith('.docx'):
+        messages.error(request, "The template file must be a Word .docx file.")
+        return redirect('letters:template_list')
+
+    base = slugify(name)[:40] or 'letter'
+    slug, n = base, 1
+    while LetterType.objects.filter(slug=slug).exists():
+        n += 1
+        slug = f"{base}-{n}"
+    lt = LetterType.objects.create(slug=slug, display_name=name)
+    LetterTypeMapping.objects.get_or_create(raw_text=name, defaults={'letter_type': lt})
+    if up:
+        t = LetterTemplate.objects.create(letter_type=slug, name=up.name, file=up,
+                                          version=1, is_active=False)
+        tags = _premapped_tags(t)
+        log_activity(request, 'UPLOAD_TEMPLATE', f"Created letter type '{name}' with uploaded template '{up.name}'")
+        if not tags:
+            messages.warning(request, f"Letter type '{name}' was created, but no {{{{ tag }}}} placeholders were found in the file.")
+            return redirect('letters:template_list')
+        messages.success(request, f"Letter type '{name}' created. Check the tag mapping, then preview and activate.")
+        return redirect('letters:template_mapping', template_id=t.id)
+    fname = f"{slug}_v1.docx"
+    t = LetterTemplate(letter_type=slug, name=fname, version=1, is_active=False)
+    t.file.save(fname, ContentFile(build_tagged_letter('request')), save=True)
+    _premapped_tags(t)
+    log_activity(request, 'UPLOAD_TEMPLATE', f"Created letter type '{name}' from the system letter")
+    messages.success(request, f"Letter type '{name}' created from the system's letter. Change the wording below, then save, preview and activate.")
     return redirect('letters:template_editor', template_id=t.id)
 
 
@@ -1603,9 +1688,8 @@ def template_activate(request, template_id):
         messages.error(request, f"Can't activate — {unmapped} placeholder(s) still unmapped.")
         return redirect('letters:template_mapping', template_id=template_obj.id)
 
-    # one active version per letter type and academic year
-    LetterTemplate.objects.filter(letter_type=template_obj.letter_type,
-                                  academic_year=template_obj.academic_year).exclude(pk=template_obj.pk).update(is_active=False)
+    # one active version per letter type
+    LetterTemplate.objects.filter(letter_type=template_obj.letter_type).exclude(pk=template_obj.pk).update(is_active=False)
     template_obj.is_active = True
     template_obj.save()
     log_activity(request, 'ACTIVATE_TEMPLATE', f"Activated template #{template_obj.id} for '{template_obj.letter_type}'")

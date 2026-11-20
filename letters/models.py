@@ -69,7 +69,6 @@ class LetterTemplate(models.Model):
     logo = models.ForeignKey('Logo', null=True, blank=True, on_delete=models.SET_NULL, related_name='templates')
     name = models.CharField(max_length=150)
     letter_type = models.CharField(max_length=50)                 # several versions of one type are allowed
-    academic_year = models.CharField(max_length=9, blank=True, default='')   # e.g. "2026"; blank = any year
     version = models.PositiveIntegerField(default=1)
     file = models.FileField(upload_to='letter_templates/')
     is_active = models.BooleanField(default=True)
@@ -77,8 +76,7 @@ class LetterTemplate(models.Model):
 
     @property
     def label(self):
-        year = f"{self.academic_year} " if self.academic_year else ''
-        return f"{year}{self.name} v{self.version}"
+        return f"{self.name} v{self.version}"
 
     def __str__(self):
         return f"{self.name} ({self.letter_type})"

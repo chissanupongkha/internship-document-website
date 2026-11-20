@@ -46,6 +46,7 @@ urlpatterns = [
     path('templates/', views.template_list, name='template_list'),
     path('templates/upload/', views.template_upload, name='template_upload'),
     path('templates/from-builtin/', views.template_from_builtin, name='template_from_builtin'),
+    path('templates/create/', views.template_create, name='template_create'),
     path('templates/<int:template_id>/edit/', views.template_edit, name='template_edit'),
     path('templates/<int:template_id>/editor/', template_editor.template_editor, name='template_editor'),
     path('templates/<int:template_id>/restore/', template_editor.template_restore, name='template_restore'),

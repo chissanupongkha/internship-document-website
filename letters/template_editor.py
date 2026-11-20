@@ -115,10 +115,31 @@ def _para_locked(p_el):
     return _has_picture(p_el) or _has_section(p_el) or (_has_page_break(p_el) and not _is_pagebreak_only(p_el))
 
 
-def _para_align(p_el):
+def _para_align(p_el, doc=None):
+    """Alignment of a paragraph: its own setting, else its style chain (Word centres many logos
+    through a style, not on the paragraph), else a floating picture's position, else left."""
     ppr = p_el.find(qn('w:pPr'))
     jc = ppr.find(qn('w:jc')) if ppr is not None else None
-    return ALIGN_OUT.get(jc.get(qn('w:val')) if jc is not None else '', 'left')
+    if jc is not None:
+        return ALIGN_OUT.get(jc.get(qn('w:val')), 'left')
+    if doc is not None:
+        try:
+            st = Paragraph(p_el, doc._body).style
+        except Exception:
+            st = None
+        while st is not None:
+            sppr = st.element.find(qn('w:pPr'))
+            sjc = sppr.find(qn('w:jc')) if sppr is not None else None
+            if sjc is not None:
+                return ALIGN_OUT.get(sjc.get(qn('w:val')), 'left')
+            st = st.base_style
+    wp = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+    for anc in p_el.iter('{%s}anchor' % wp):          # floating picture placed "centred" on the page / margin
+        ph = anc.find('{%s}positionH' % wp)
+        al = ph.find('{%s}align' % wp) if ph is not None else None
+        if al is not None and (al.text or '').strip() in ('left', 'center', 'right'):
+            return al.text.strip()
+    return 'left'
 
 
 def _tw(v):                                    # twips -> pt
@@ -181,7 +202,7 @@ def _para_props(p_el, doc):
         if line is None and l is not None:
             rule = r or 'auto'
             line = round(int(l) / 240, 2) if rule == 'auto' else None
-    return {'align': _para_align(p_el), 'first': first or 0, 'left': left or 0,
+    return {'align': _para_align(p_el, doc), 'first': first or 0, 'left': left or 0,
             'before': before or 0, 'after': after or 0, 'line': line if rule in (None, 'auto') else None}
 
 
@@ -247,7 +268,7 @@ def _cell_item(p_el, doc):
     return {'props': _para_props(p_el, doc), 'runs': _para_runs(p_el), 'locked': _para_locked(p_el)}
 
 
-def docx_to_items(data):
+def docx_to_items(data, pics=True):
     """-> (items, page) where page holds the sheet size, margins and default font for the editor."""
     doc = Document(io.BytesIO(data))
     sec = doc.sections[0]
@@ -260,7 +281,7 @@ def docx_to_items(data):
             if _is_pagebreak_only(child):
                 items.append({'kind': 'pb', 'src': pi})
             elif _para_locked(child):
-                pic = _picture(child, doc) if _has_picture(child) else None
+                pic = _picture(child, doc) if (pics and _has_picture(child)) else None
                 items.append({'kind': 'p', 'src': pi, 'locked': True, 'props': _para_props(child, doc), 'runs': [],
                               'pic': pic, 'note': 'Picture (logo) kept as is' if _has_picture(child)
                               else ('Section settings kept as is' if _has_section(child) else 'Page break with text kept as is')})
@@ -510,11 +531,11 @@ def _read(t):
 
 
 def _new_version(src, data, user_note=''):
-    last = (LetterTemplate.objects.filter(letter_type=src.letter_type, academic_year=src.academic_year)
+    last = (LetterTemplate.objects.filter(letter_type=src.letter_type)
             .order_by('-version').first())
     base = re.sub(r'(_v\d+)?\.docx$', '', os.path.basename(src.name or 'template'), flags=re.I)
     ver = (last.version if last else src.version) + 1
-    new = LetterTemplate(letter_type=src.letter_type, academic_year=src.academic_year, version=ver,
+    new = LetterTemplate(letter_type=src.letter_type, version=ver,
                          name=f"{base}_v{ver}.docx", logo=src.logo, is_active=False)
     new.file.save(f"{base}_v{ver}.docx", ContentFile(data), save=True)
     new.file.open('rb')
@@ -558,7 +579,7 @@ def template_editor(request, template_id):
             f"/templates/{new.id}/editor/")})
 
     items, page = docx_to_items(data)
-    versions = LetterTemplate.objects.filter(letter_type=t.letter_type, academic_year=t.academic_year).order_by('-version')
+    versions = LetterTemplate.objects.filter(letter_type=t.letter_type).order_by('-version')
     next_version = (versions.first().version if versions else t.version) + 1
     mapped = set(t.field_mappings.exclude(source_type=TemplateFieldMapping.SOURCE_UNMAPPED).values_list('placeholder', flat=True))
     return render(request, 'letters/template_editor.html', {
@@ -576,3 +597,53 @@ def template_restore(request, template_id):
     log_activity(request, 'EDIT_TEMPLATE', f"Restored version {t.version} of '{t.letter_type}' as version {new.version}")
     messages.success(request, f"Version {t.version} was copied as the new version {new.version}. Preview and activate it when ready.")
     return redirect('letters:template_editor', template_id=new.id)
+
+
+# ----------------------------------------------------------------------
+# small read-only picture of a template (cards on the Document templates page)
+# ----------------------------------------------------------------------
+def mini_preview_html(data, max_items=22):
+    """HTML of the first page of a template, drawn at full A4 width (the page scales it down with CSS)."""
+    from django.utils.html import escape
+    from django.utils.safestring import mark_safe
+    items, page = docx_to_items(data, pics=False)
+
+    def para(pr, runs, empty_h=True):
+        pr = pr or {}
+        st = (f"text-align:{'justify' if pr.get('align') == 'both' else pr.get('align', 'left')};"
+              f"text-indent:{pr.get('first', 0)}pt;padding-left:{max(pr.get('left', 0), 0)}pt;"
+              f"margin:{pr.get('before', 0)}pt 0 {pr.get('after', 0)}pt;line-height:{(pr.get('line') or 1) * 1.1:.2f};")
+        out = []
+        for r in runs or []:
+            css = ''.join([
+                'font-weight:700;' if r.get('b') else '', 'font-style:italic;' if r.get('i') else '',
+                'text-decoration:underline;' if r.get('u') else '',
+                f"font-size:{r['sz']}pt;" if r.get('sz') else '', f"color:#{r['col']};" if r.get('col') else ''])
+            txt = escape(r['t']).replace('\n', '<br>')
+            txt = re.sub(r'(\{\{.*?\}\})', r'<span class="mtag">\1</span>', txt)
+            out.append(f'<span style="{css}">{txt}</span>' if css else txt)
+        return f'<div style="{st}white-space:pre-wrap;min-height:1em">{"".join(out)}</div>'
+
+    html, n = [], 0
+    for it in items:
+        if n >= max_items:
+            break
+        n += 1
+        if it['kind'] == 'pb':
+            break
+        if it['kind'] == 'table':
+            rows = []
+            for row in it['rows']:
+                cells = ''.join(f'<td style="padding:1px 4px;border:1px solid #999;vertical-align:top">'
+                                + ''.join(para(p['props'], p['runs']) for p in c['paras']) + '</td>' for c in row['cells'])
+                rows.append(f'<tr>{cells}</tr>')
+            html.append(f'<table style="border-collapse:collapse;width:100%;table-layout:auto">{"".join(rows)}</table>')
+        elif it.get('locked'):
+            if 'Picture' in (it.get('note') or ''):
+                al = (it.get('props') or {}).get('align', 'left')
+                html.append(f'<div style="text-align:{al};margin:2pt 0"><span class="mlogo">LOGO</span></div>')
+        else:
+            html.append(para(it.get('props'), it.get('runs')))
+    wrapper = (f'<div class="minisheet" style="padding:{page["mt"]}cm {page["mr"]}cm {page["mb"]}cm {page["ml"]}cm;'
+               f'font-family:\'{page["font"]}\',\'TH Sarabun New\',serif;font-size:{page["size"]}pt">{"".join(html)}</div>')
+    return mark_safe(wrapper)

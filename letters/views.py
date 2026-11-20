@@ -513,16 +513,25 @@ def upload(request):
     records = []
     in_memory_counts = {}
     skipped_rows = []          # Excel row numbers that have no student ID
+    skipped_info = []          # the same rows with what can be shown about them
+
+    def _skipped(row, n):
+        skipped_rows.append(n)
+        skipped_info.append({
+            'n': n, 'student_id': '',
+            'name': f"{_get_val(row, *H_PREFIX)} {_get_val(row, *H_FIRST_NAME)} {_get_val(row, *H_LAST_NAME)}".strip(),
+            'year': _get_val(row, *H_YEAR), 'subject': _get_val(row, *H_COURSE),
+            'company': _get_val(row, *H_COMPANY), 'letter_type': _get_val(row, *H_LETTER_TYPE)})
 
     for i, row in enumerate(df.to_dict(orient='records')):
         s_id_raw = _get_val(row, *H_STUDENT_ID)
         if not s_id_raw:
-            skipped_rows.append(i + 2)
+            _skipped(row, i + 2)
             continue
 
         s_id = str(s_id_raw).replace('.0', '').strip()
         if not s_id:
-            skipped_rows.append(i + 2)
+            _skipped(row, i + 2)
             continue
 
         l_type = _get_val(row, *H_LETTER_TYPE)
@@ -578,80 +587,54 @@ def upload(request):
         messages.error(request, "No valid student records found. Please check column header names.")
         return redirect('letters:index')
 
-    unlisted = _unlisted_students(records)
-
-    # ---- first step: check the data and ask before saving anything ----
+    # ---- first step: show every row and let the staff choose which ones to import ----
     if not token:
-        checked = _check_records(records)
-        # students missing from the student list get their own tick-box block below
-        for x in checked:
-            x['issues'] = [i for i in x['issues'] if i['code'] != 'no_student']
-            x['worst'] = ('error' if any(i['level'] == 'error' for i in x['issues'])
-                          else ('warn' if x['issues'] else None))
-        flagged = [x for x in checked if x['issues']]
-        if flagged or skipped_rows or unlisted:
-            problems = []
-            for n in skipped_rows:
-                problems.append({'where': f"Excel row {n}", 'level': 'skip', 'who': '(no student ID)',
-                                 'text': "Student ID is empty - row is not uploaded"})
-            for x in flagged:
-                r = x['record']
-                for i in x['issues']:
-                    problems.append({'where': f"Excel row {r.row_index + 2}", 'level': i['level'],
-                                     'who': f"{r.student_id} {r.display_name}".strip(), 'text': i['text']})
-            n_err = sum(1 for x in flagged if x['worst'] == 'error')
-            n_warn = sum(1 for x in flagged if x['worst'] == 'warn')
-            token = _stash_upload(request, f, 'requests')
-            unlisted_rows = [{'student_id': sid, 'name': (rs[0].display_name or '').strip(),
-                              'year': (rs[0].year or '').strip(),
-                              'subjects': ', '.join(sorted({(r.course_id or '').strip() for r in rs if r.course_id})),
-                              'rows': ', '.join(str(r.row_index + 2) for r in rs[:6]) + (' …' if len(rs) > 6 else '')}
-                             for sid, rs in unlisted.items()]
-            return render(request, 'letters/import_confirm.html', {
-                'title': 'Check the request file before uploading',
-                'n_problems': len(problems) + len(unlisted_rows),
-                'unlisted': unlisted_rows,
-                'file_name': file_name,
-                'token': token,
-                'action_url': reverse('letters:upload'),
-                'summary': [
-                    ('Rows in file', len(df)),
-                    ('Rows without problems', len(records) - len(flagged)),
-                    ('Rows with errors', n_err),
-                    ('Rows with warnings only', n_warn),
-                    ('Problems found', len(problems)),
-                ],
-                'problems': problems[:200],
-                'more': max(0, len(problems) - 200),
-                'confirm_note': ("“Upload anyway” saves every row that has a student ID, exactly as in the file. "
-                                 "The problems stay listed on the Data Check page so you can correct them there."),
-            })
+        unlisted = _unlisted_students(records)
+        new_ids = set(unlisted)
+        rows = []
+        for x in _check_records(records):
+            r = x['record']
+            reasons = [{'level': i['level'], 'text': i['text']} for i in x['issues'] if i['code'] != 'no_student']
+            is_new = (r.student_id or '').strip() in new_ids
+            if is_new:
+                reasons.insert(0, {'level': 'warn', 'text': "Not in the student list (for example an older-year student). "
+                                                            "Tick to add this student to the system."})
+            rows.append({'n': r.row_index + 2, 'pick': r.row_index, 'student_id': r.student_id,
+                         'name': r.display_name, 'year': r.year, 'subject': r.course_id, 'company': r.company,
+                         'letter_type': r.letter_type, 'status': 'check' if reasons else 'ready',
+                         'reasons': reasons, 'new_student': is_new})
+        for sk in skipped_info:
+            rows.append({**sk, 'pick': '', 'status': 'err', 'new_student': False,
+                         'reasons': [{'level': 'error', 'text': "Student ID is empty, so this row cannot be imported."}]})
+        rows.sort(key=lambda row: row['n'])
+        token = _stash_upload(request, f, 'requests')
+        count = lambda st: sum(1 for row in rows if row['status'] == st)
+        return render(request, 'letters/import_select.html', {
+            'file_name': file_name, 'token': token, 'rows': rows, 'action_url': reverse('letters:upload'),
+            'n_rows': len(rows), 'n_ready': count('ready'), 'n_check': count('check'), 'n_err': count('err'),
+        })
 
-    # ---- save ----
-    left_out, brought = [], 0
-    if token and unlisted:
-        left_out, brought = _bring_in_students(request, unlisted, set(request.POST.getlist('bring_in')))
-        gone = {id(r) for r in left_out}
-        records = [r for r in records if id(r) not in gone]
-        if not records:
-            _drop_stash(request, token)
-            messages.warning(request, "Nothing was uploaded: every row belonged to a student who is not in the student list and was not confirmed.")
-            return redirect('letters:index')
+    # ---- second step: import only the rows that were ticked ----
+    n_total = len(records)
+    picked = set(request.POST.getlist('pick'))
+    records = [r for r in records if str(r.row_index) in picked]
+    n_unselected = n_total - len(records)
+    if not records:
+        _drop_stash(request, token)
+        messages.warning(request, "Nothing was imported because no rows were selected.")
+        return redirect('letters:index')
+    unlisted = _unlisted_students(records)          # ticking such a row confirms adding that student
+    _, brought = _bring_in_students(request, unlisted, set(unlisted))
     batch = UploadedBatch.objects.create(file_name=file_name, uploaded_by=request.user)
     for r in records:
         r.batch = batch
     StudentRecord.objects.bulk_create(records)
     if brought:
         messages.info(request, f"{brought} student(s) who were not in the student list were added to the system.")
-    if left_out:
-        messages.warning(request, f"{len(left_out)} row(s) were not uploaded because their students are not in the student list and were not confirmed.")
-    if token:
-        _drop_stash(request, token)
-    messages.success(request, f"Successfully uploaded and extracted {len(records)} record(s).")
-    if skipped_rows:
-        shown = ", ".join(str(n) for n in skipped_rows[:10])
-        more = f" (+{len(skipped_rows) - 10} more)" if len(skipped_rows) > 10 else ""
-        messages.warning(request, f"{len(skipped_rows)} row(s) were skipped because the student ID is empty (Excel row {shown}{more}).")
+    if n_unselected:
+        messages.warning(request, f"{n_unselected} row(s) were not selected and were not imported.")
+    _drop_stash(request, token)
+    messages.success(request, f"Imported {len(records)} of {n_total} record(s).")
     return redirect('letters:preview', batch_id=batch.id)
 
 

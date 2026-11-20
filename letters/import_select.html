@@ -1,0 +1,148 @@
+{% extends 'letters/base.html' %}
+{% block title %}Choose rows to import — Internship Letter Generator{% endblock %}
+{% block content %}
+<div class="max-w-6xl">
+  <div class="text-[11px] uppercase tracking-wider text-gray-500 mb-1">Upload Excel · Step 2 of 3</div>
+  <h1 class="text-xl font-semibold">Choose which rows to import</h1>
+  <p class="text-sm text-gray-500 mb-5">
+    File <span class="font-mono">{{ file_name }}</span> · {{ n_rows }} row{{ n_rows|pluralize }} found.
+    <strong>Nothing has been saved yet.</strong> Only ticked rows are imported; unticked rows are skipped.
+  </p>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-gray-500">Rows in file</div><div class="text-2xl font-semibold">{{ n_rows }}</div></div>
+    <div class="bg-white border border-[#E1DACB] rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-green-700">Ready</div><div class="text-2xl font-semibold">{{ n_ready }}</div></div>
+    <div class="bg-white border border-amber-300 rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-amber-700">Need your check</div><div class="text-2xl font-semibold">{{ n_check }}</div></div>
+    <div class="bg-white border border-red-200 rounded-xl p-3 shadow-sm"><div class="text-[11px] uppercase text-red-700">Cannot import</div><div class="text-2xl font-semibold">{{ n_err }}</div></div>
+  </div>
+
+  <form method="post" action="{{ action_url }}" id="selectForm">
+  {% csrf_token %}
+  <input type="hidden" name="token" value="{{ token }}">
+
+  <div class="bg-white border border-[#E1DACB] rounded-xl shadow-sm overflow-hidden">
+    <div class="flex flex-wrap items-center gap-3 p-3 border-b border-[#E1DACB] bg-[#FBF9F4]">
+      <div class="inline-flex rounded-lg border border-[#E1DACB] overflow-hidden text-xs font-semibold bg-white" id="tabs">
+        <button type="button" data-f="all" class="px-3 py-1.5 bg-[#006C6C] text-white">All ({{ n_rows }})</button>
+        <button type="button" data-f="ready" class="px-3 py-1.5 hover:bg-gray-50">Ready ({{ n_ready }})</button>
+        <button type="button" data-f="check" class="px-3 py-1.5 hover:bg-gray-50">Check ({{ n_check }})</button>
+        <button type="button" data-f="err" class="px-3 py-1.5 hover:bg-gray-50">Cannot import ({{ n_err }})</button>
+      </div>
+      <input type="text" id="q" placeholder="Search student ID, name, company…" class="border border-gray-300 rounded-lg px-3 py-1.5 text-xs w-64 bg-white">
+      <div class="ml-auto flex items-center gap-3 text-xs">
+        <button type="button" id="selReady" class="font-semibold text-[#006C6C] hover:underline">Select all ready</button>
+        <button type="button" id="selNone" class="font-semibold text-gray-500 hover:underline">Clear</button>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-left text-xs">
+      <thead class="bg-[#FBF9F4] border-b border-[#E1DACB] font-semibold text-gray-600 uppercase">
+        <tr>
+          <th class="p-3 w-10"><input type="checkbox" id="all" title="Tick or untick every row shown"></th>
+          <th class="p-3">Row</th><th class="p-3">Student ID</th><th class="p-3">Name</th><th class="p-3">Year</th>
+          <th class="p-3">Subject</th><th class="p-3">Company</th><th class="p-3">Letter type</th><th class="p-3">Status</th>
+        </tr>
+      </thead>
+      <tbody id="rows" class="divide-y divide-[#E1DACB]">
+        {% for r in rows %}
+        <tr class="align-top {% if r.status == 'err' %}bg-red-50/40 text-gray-400{% elif r.status == 'check' %}bg-amber-50/40{% endif %}"
+            data-s="{{ r.status }}" data-new="{% if r.new_student %}1{% endif %}"
+            data-q="{{ r.student_id }} {{ r.name }} {{ r.company }}">
+          <td class="p-3">
+            {% if r.status == 'err' %}<input type="checkbox" disabled>
+            {% else %}<input type="checkbox" class="pick" name="pick" value="{{ r.pick }}" data-s="{{ r.status }}" {% if r.status == 'ready' %}checked{% endif %}>{% endif %}
+          </td>
+          <td class="p-3 font-mono text-gray-500">{{ r.n }}</td>
+          <td class="p-3 font-mono">{{ r.student_id|default:"—" }}</td>
+          <td class="p-3">{{ r.name|default:"—" }}</td>
+          <td class="p-3">{{ r.year|default:"—" }}</td>
+          <td class="p-3">{{ r.subject|default:"—" }}</td>
+          <td class="p-3">{{ r.company|default:"—" }}</td>
+          <td class="p-3">{{ r.letter_type|default:"—" }}</td>
+          <td class="p-3">
+            {% if r.status == 'ready' %}<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700">Ready</span>
+            {% elif r.status == 'check' %}<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">Check</span>
+            {% else %}<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700">Cannot import</span>{% endif %}
+            {% for x in r.reasons %}
+              <div class="mt-1 text-[11px] max-w-xs {% if x.level == 'error' %}text-red-600{% else %}text-amber-800{% endif %}">{{ x.text }}</div>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="p-3 border-t border-[#E1DACB] text-[11px] text-gray-500 flex flex-wrap gap-x-5 gap-y-1">
+      <span><span class="inline-block px-2 py-0.5 rounded bg-green-100 text-green-700 font-semibold text-[10px]">Ready</span> ticked automatically</span>
+      <span><span class="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold text-[10px]">Check</span> not ticked until you decide; the reason is shown</span>
+      <span><span class="inline-block px-2 py-0.5 rounded bg-red-100 text-red-700 font-semibold text-[10px]">Cannot import</span> the student ID is empty, so it cannot be ticked</span>
+    </div>
+  </div>
+
+  <div class="sticky bottom-0 z-10 mt-4 bg-white border border-[#E1DACB] rounded-xl shadow-lg px-4 py-3 flex flex-wrap items-center gap-3">
+    <div class="text-sm"><strong id="cnt">0</strong> of {{ n_rows }} rows selected <span class="text-xs text-gray-500" id="extra"></span></div>
+    <div class="ml-auto flex gap-3">
+      <button type="submit" name="action" value="cancel"
+              class="bg-white border border-[#E1DACB] text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-[#FBF9F4]">
+        Cancel — I will fix the file
+      </button>
+      <button type="submit" name="action" value="confirm" id="go"
+              class="bg-[#006C6C] text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:opacity-90 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed">
+        Import selected rows
+      </button>
+    </div>
+  </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var tb = document.getElementById('rows');
+  var picks = function () { return Array.prototype.slice.call(tb.querySelectorAll('.pick')); };
+  var filter = 'all', query = '';
+  function update() {
+    var on = picks().filter(function (p) { return p.checked; });
+    var n = on.length;
+    document.getElementById('cnt').textContent = n;
+    var go = document.getElementById('go');
+    go.textContent = 'Import ' + n + ' selected row' + (n === 1 ? '' : 's');
+    go.disabled = !n;
+    var add = on.filter(function (p) { return p.closest('tr').dataset['new']; }).length;
+    document.getElementById('extra').textContent = add ? '· includes ' + add + ' row(s) that add a new student to the system' : '';
+  }
+  function show() {
+    tb.querySelectorAll('tr').forEach(function (tr) {
+      var okF = filter === 'all' || tr.dataset.s === filter;
+      var okQ = !query || tr.dataset.q.toLowerCase().indexOf(query) !== -1;
+      tr.style.display = (okF && okQ) ? '' : 'none';
+    });
+  }
+  tb.addEventListener('change', update);
+  document.getElementById('all').addEventListener('change', function (e) {
+    tb.querySelectorAll('tr').forEach(function (tr) {
+      var p = tr.querySelector('.pick');
+      if (p && tr.style.display !== 'none') p.checked = e.target.checked;
+    });
+    update();
+  });
+  document.getElementById('selReady').addEventListener('click', function () {
+    picks().forEach(function (p) { p.checked = p.dataset.s === 'ready'; }); update();
+  });
+  document.getElementById('selNone').addEventListener('click', function () {
+    picks().forEach(function (p) { p.checked = false; }); update();
+  });
+  document.querySelectorAll('#tabs button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#tabs button').forEach(function (x) { x.className = 'px-3 py-1.5 hover:bg-gray-50'; });
+      b.className = 'px-3 py-1.5 bg-[#006C6C] text-white';
+      filter = b.dataset.f; show();
+    });
+  });
+  document.getElementById('q').addEventListener('input', function (e) { query = e.target.value.trim().toLowerCase(); show(); });
+  document.getElementById('selectForm').addEventListener('submit', function (e) {
+    var act = e.submitter && e.submitter.value;
+    if (act === 'confirm' && !picks().some(function (p) { return p.checked; })) e.preventDefault();
+  });
+  update();
+})();
+</script>
+{% endblock %}

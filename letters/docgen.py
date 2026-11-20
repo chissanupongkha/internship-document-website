@@ -10,6 +10,7 @@ docgen.py
 มาตรฐานฟอนต์: TH Sarabun New 14pt
 ระยะย่อหน้า: 1 แท็บ (1.27 ซม.)
 """
+import contextvars
 import io
 from django.core.files.base import ContentFile
 import logging
@@ -200,7 +201,17 @@ def _contact_line(r_dict):
     return _compose_contact(*_contact_parts(r_dict))
 
 
+_CFG_SCOPE = contextvars.ContextVar('letter_cfg', default=None)
+
+
 def _cfg():
+    """The letter settings. While one letter is being built they are read from the database once
+    (building a letter asks for them once per paragraph, which meant about 20 identical queries per letter)."""
+    scoped = _CFG_SCOPE.get()
+    return scoped if scoped is not None else _load_cfg()
+
+
+def _load_cfg():
     """Editable letter settings (reference prefix, date, dean, supervisor, spacing).
 
     Falls back to the built-in values when the database is not available, so
@@ -976,7 +987,16 @@ def _try_user_template(row_or_record, kind, ref_no="___", semester=''):
         return None
 
 
-def generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, force_builtin=False, semester=''):
+def generate_for_row(*args, **kwargs):
+    """Build one letter. The letter settings are loaded once for the whole letter."""
+    token = _CFG_SCOPE.set(_load_cfg())
+    try:
+        return _generate_for_row(*args, **kwargs)
+    finally:
+        _CFG_SCOPE.reset(token)
+
+
+def _generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, force_builtin=False, semester=''):
     if kind_override:
         kind = normalize_letter_type(kind_override)
     else:

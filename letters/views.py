@@ -1595,6 +1595,25 @@ def letter_settings(request):
         except InvalidOperation:
             messages.error(request, "Line spacing must be a number between 0.8 and 2.0.")
             return redirect('letters:letter_settings')
+        try:
+            logo_w = Decimal(request.POST.get('logo_width_cm', '2.0') or '2.0')
+            gap = int(request.POST.get('header_gap_pt', '2') or '2')
+            if not Decimal('1.0') <= logo_w <= Decimal('5.0') or not 0 <= gap <= 40:
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            messages.error(request, "Logo width must be 1.0–5.0 cm and the gap below the letterhead 0–40 pt.")
+            return redirect('letters:letter_settings')
+        logo_align = request.POST.get('logo_align', 'center')
+        header_align = request.POST.get('header_align', 'right')
+        try:
+            font_pt = Decimal(request.POST.get('header_font_pt', '14') or '14')
+            logo_gap = int(request.POST.get('logo_gap_pt', '0') or '0')
+            if (logo_align not in ('left', 'center', 'right') or header_align not in ('left', 'center', 'right')
+                    or not Decimal('10') <= font_pt <= Decimal('18') or not 0 <= logo_gap <= 40):
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            messages.error(request, "Check the letterhead values: font 10–18 pt, gap 0–40 pt, alignment left/center/right.")
+            return redirect('letters:letter_settings')
         fixed = request.POST.get('letter_date', '').strip()
         try:
             letter_date = datetime.strptime(fixed, '%Y-%m-%d').date() if fixed else None
@@ -1603,6 +1622,8 @@ def letter_settings(request):
             return redirect('letters:letter_settings')
         obj.dean_name, obj.dean_title, obj.ref_prefix = name, title, prefix
         obj.line_spacing, obj.letter_date = spacing, letter_date
+        obj.logo_width_cm, obj.header_gap_pt = logo_w, gap
+        obj.logo_align, obj.header_align, obj.header_font_pt, obj.logo_gap_pt = logo_align, header_align, font_pt, logo_gap
         obj.save()
         messages.success(request, "Letter settings saved. New letters use them straight away.")
         return redirect('letters:letter_settings')

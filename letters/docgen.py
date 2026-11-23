@@ -224,6 +224,12 @@ def _load_cfg():
         'dean_name': DEAN_TH,
         'dean_title': DEAN_TITLE_TH,
         'line_spacing': 1.0,
+        'logo_width_cm': 2.0,
+        'header_gap_pt': 2,
+        'logo_align': 'center',
+        'header_align': 'right',
+        'header_font_pt': 14.0,
+        'logo_gap_pt': 0,
     }
     try:
         from .models import LetterSettings
@@ -234,6 +240,12 @@ def _load_cfg():
             'dean_name': obj.dean_name or cfg['dean_name'],
             'dean_title': obj.dean_title or cfg['dean_title'],
             'line_spacing': float(obj.line_spacing or cfg['line_spacing']),
+            'logo_width_cm': float(obj.logo_width_cm or cfg['logo_width_cm']),
+            'logo_align': obj.logo_align or 'center',
+            'header_align': obj.header_align or 'right',
+            'header_font_pt': float(obj.header_font_pt or 14),
+            'logo_gap_pt': int(obj.logo_gap_pt or 0),
+            'header_gap_pt': int(obj.header_gap_pt if obj.header_gap_pt is not None else cfg['header_gap_pt']),
         })
     except Exception:
         pass
@@ -510,20 +522,24 @@ def _base_doc():
 
 
 def _letterhead(doc, faculty_name):
+    cfg = _cfg()
+    aligns = {'left': WD_ALIGN_PARAGRAPH.LEFT, 'center': WD_ALIGN_PARAGRAPH.CENTER, 'right': WD_ALIGN_PARAGRAPH.RIGHT}
     if os.path.exists(LOGO_PATH):
         p_logo = doc.add_paragraph()
-        p_logo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_logo.alignment = aligns.get(cfg['logo_align'], WD_ALIGN_PARAGRAPH.CENTER)
         p_logo.paragraph_format.space_before = Pt(0)
-        p_logo.paragraph_format.space_after = Pt(0)
+        p_logo.paragraph_format.space_after = Pt(cfg['logo_gap_pt'])
         p_logo.paragraph_format.line_spacing = 1.0
         run_logo = p_logo.add_run()
-        run_logo.add_picture(LOGO_PATH, width=Cm(2.0))
+        run_logo.add_picture(LOGO_PATH, width=Cm(cfg['logo_width_cm']))   # height follows the width, so the logo is never squashed
 
-    _para(doc, faculty_name, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=0, line_spacing=1.15)
-    _para(doc, UNIV_TH, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=0, line_spacing=1.15)
-    _para(doc, ADDRESS_LINE1_TH, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=0, line_spacing=1.15)
-    _para(doc, ADDRESS_LINE2_TH, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=0, line_spacing=1.15)
-    _para(doc, TEL_TH, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=2, line_spacing=1.15)
+    al = aligns.get(cfg['header_align'], WD_ALIGN_PARAGRAPH.RIGHT)
+    sz = cfg['header_font_pt']
+    lines = [faculty_name, UNIV_TH, ADDRESS_LINE1_TH, ADDRESS_LINE2_TH, TEL_TH]
+    for n, text in enumerate(lines):
+        last = n == len(lines) - 1
+        _para(doc, text, align=al, bold=True, size=sz, space_before=0,
+              space_after=cfg['header_gap_pt'] if last else 0, line_spacing=1.15)
 
 
 def _ref_and_date(doc, ref_no):

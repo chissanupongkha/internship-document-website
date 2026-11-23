@@ -321,6 +321,12 @@ class LetterSettings(models.Model):
     dean_name = models.CharField(max_length=150, default="(ดร.พัฒนศักดิ์ มงคลวัฒน์)")
     dean_title = models.CharField(max_length=200, default="คณบดีคณะเทคโนโลยีสารสนเทศและการสื่อสาร")
     line_spacing = models.DecimalField(max_digits=3, decimal_places=2, default=1.0)
+    logo_width_cm = models.DecimalField(max_digits=3, decimal_places=1, default=2.0)
+    header_gap_pt = models.PositiveSmallIntegerField(default=2)
+    logo_align = models.CharField(max_length=6, default='center')
+    header_align = models.CharField(max_length=6, default='right')
+    header_font_pt = models.DecimalField(max_digits=3, decimal_places=1, default=14)
+    logo_gap_pt = models.PositiveSmallIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

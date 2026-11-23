@@ -1034,7 +1034,10 @@ def download_record_pdf(request, record_id):
         filename = os.path.basename(document.signed_file.name)
     else:
         ref_no = request.GET.get('ref_no', '___')
-        pdf_buf, filename = generate_pdf_for_row(record.data, ref_no=ref_no)
+        pdf_buf, filename = generate_pdf_for_row(record.data, ref_no=ref_no, semester=record.semester)
+        if not pdf_buf:         # filename holds the reason when nothing could be made
+            messages.error(request, f"Could not create the PDF for this record: {filename}")
+            return redirect(request.META.get('HTTP_REFERER') or reverse('letters:index'))
         response = HttpResponse(pdf_buf.getvalue(), content_type='application/pdf')
 
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -1080,11 +1083,11 @@ def preview_record_pdf(request, record_id):
     # 3) nothing saved yet: generate on the fly
     ref_no = doc.ref_no if (doc and doc.ref_no) else str(2600 + record.row_index)
     try:
-        pdf_buf, _name = generate_pdf_for_row(record.data, ref_no=ref_no)
+        pdf_buf, _name = generate_pdf_for_row(record.data, ref_no=ref_no, semester=record.semester)
     except Exception as e:
         return HttpResponse(f"Unable to generate preview: {e}", status=500)
     if not pdf_buf:
-        return HttpResponse("No generated document found for this record.", status=404)
+        return HttpResponse(f"Unable to generate preview: {_name}", status=422)
     response = HttpResponse(pdf_buf.getvalue(), content_type='application/pdf')
     response['Content-Disposition'] = f'inline; filename="student_{record.student_id}.pdf"'
     return response

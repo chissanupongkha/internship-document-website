@@ -159,6 +159,7 @@ def resolve_letter_type(raw_val):
 
 
 TAB_INDENT_CM = 1.27
+SIGN_INDENT_CM = 5.5        # moves the signature block to the right (the centre moves half of this)
 
 THAI_MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
                "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
@@ -577,11 +578,15 @@ def _student_table(doc, rows):
 
 
 def _signature_block(doc):
-    _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=2, space_after=46)
     cfg = _cfg()
-    _para(doc, cfg['dean_name'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
-    _para(doc, cfg['dean_title'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
-    _para(doc, UNIV_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
+    lines = [
+        _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=2, space_after=46),
+        _para(doc, cfg['dean_name'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15),
+        _para(doc, cfg['dean_title'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15),
+        _para(doc, UNIV_TH, align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15),
+    ]
+    for p in lines:                    # the signature block sits on the right-hand side of the page
+        p.paragraph_format.left_indent = Cm(SIGN_INDENT_CM)
 
 
 def _full_name(row):
@@ -1061,7 +1066,9 @@ def _generate_for_row(row, ref_no="___", kind_override=None, template_obj=None, 
     return buf, filename
 
 
-def convert_docx_bytes_to_pdf(docx_bytes: bytes) -> bytes:
+def convert_docx_bytes_to_pdf(docx_bytes) -> bytes:
+    if hasattr(docx_bytes, 'getvalue'):             # accept a BytesIO as well as raw bytes
+        docx_bytes = docx_bytes.getvalue()
     soffice_bin = _get_libreoffice_bin()
     if not soffice_bin:
         raise RuntimeError("ไม่พบโปรแกรม LibreOffice ในระบบ")
@@ -1083,7 +1090,7 @@ def convert_docx_bytes_to_pdf(docx_bytes: bytes) -> bytes:
             "--outdir", tmp_dir, input_docx_path,
         ]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                env=env, timeout=60, check=False)
+                                env=env, timeout=180, check=False)   # the first start of LibreOffice on a small server is slow
         if result.returncode != 0:
             raise RuntimeError(f"LibreOffice error: {result.stderr.decode('utf-8', errors='ignore')}")
 
@@ -1113,8 +1120,8 @@ def convert_docx_to_pdf(input_path_or_bytes, output_path=None):
         return pdf_bytes
 
 
-def generate_pdf_for_row(row, ref_no="___"):
-    doc_buf, docx_filename = generate_for_row(row, ref_no=ref_no)
+def generate_pdf_for_row(row, ref_no="___", semester=''):
+    doc_buf, docx_filename = generate_for_row(row, ref_no=ref_no, semester=semester)
     if not doc_buf:
         return None, docx_filename
 

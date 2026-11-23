@@ -23,7 +23,7 @@ from docx.shared import Pt
 from docx.text.paragraph import Paragraph
 
 from .decorators import staff_required
-from .docgen import AVAILABLE_SOURCE_FIELDS, extract_fields_from_docx
+from .docgen import AVAILABLE_SOURCE_FIELDS, TemplateFileMissing, extract_fields_from_docx, template_bytes
 from .models import LetterTemplate, Logo, TemplateFieldMapping
 from .views import log_activity
 
@@ -523,11 +523,7 @@ def _check_tags_render(data):
 
 
 def _read(t):
-    t.file.open('rb')
-    try:
-        return t.file.read()
-    finally:
-        t.file.close()
+    return template_bytes(t)
 
 
 def _new_version(src, data, user_note=''):
@@ -559,7 +555,11 @@ def _new_version(src, data, user_note=''):
 @staff_required
 def template_editor(request, template_id):
     t = get_object_or_404(LetterTemplate, id=template_id)
-    data = _read(t)
+    try:
+        data = _read(t)
+    except TemplateFileMissing as e:
+        messages.error(request, str(e))
+        return redirect('letters:template_list')
 
     if request.method == 'POST':
         try:

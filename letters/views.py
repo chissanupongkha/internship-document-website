@@ -1427,11 +1427,8 @@ def template_list(request):
                 'n_versions': len(mine), 'builtin_only': shown is None}
         try:
             if shown is not None:
-                shown.file.open('rb')
-                try:
-                    card['mini'] = mini_preview_html(shown.file.read())
-                finally:
-                    shown.file.close()
+                from .docgen import template_bytes
+                card['mini'] = mini_preview_html(template_bytes(shown))
             else:
                 card['mini'] = mini_preview_html(build_tagged_letter(slug))
         except Exception:
@@ -1514,11 +1511,8 @@ def _premapped_tags(t):
     """Map every tag of a template that has the same name as a system field; returns the tag list."""
     from .docgen import AVAILABLE_SOURCE_FIELDS
     known = {tag for tag, _label in AVAILABLE_SOURCE_FIELDS}
-    t.file.open('rb')
-    try:
-        tags = extract_fields_from_docx(t.file).get('template_variables') or []
-    finally:
-        t.file.close()
+    from .docgen import template_bytes
+    tags = extract_fields_from_docx(template_bytes(t)).get('template_variables') or []
     for tag in tags:
         TemplateFieldMapping.objects.get_or_create(
             template=t, placeholder=tag,
@@ -1757,7 +1751,12 @@ def template_preview(request, template_id):
     kind = normalize_letter_type(sample_record.letter_type)
     ref_no = sample_record.ref_no or '001'          # a preview must not use up a running number
 
-    docx_buf = render_with_template(template_obj, sample_record, kind, ref_no)
+    from .docgen import TemplateFileMissing
+    try:
+        docx_buf = render_with_template(template_obj, sample_record, kind, ref_no)
+    except TemplateFileMissing as e:
+        messages.error(request, str(e))
+        return redirect('letters:template_list')
     pdf_bytes = convert_docx_bytes_to_pdf(docx_buf.getvalue())
 
     response = HttpResponse(pdf_bytes, content_type='application/pdf')

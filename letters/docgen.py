@@ -944,11 +944,7 @@ def bake_logo_into_template(template_obj, logo):
         logo_bytes = logo.image.read()
     finally:
         logo.image.close()
-    template_obj.file.open('rb')
-    try:
-        doc = Document(BytesIO(template_obj.file.read()))
-    finally:
-        template_obj.file.close()
+    doc = Document(BytesIO(template_bytes(template_obj)))
     if not apply_logo(doc, logo_bytes):
         return False
     buf = io.BytesIO()
@@ -970,11 +966,7 @@ def render_with_template(template_obj, row_or_record, kind, ref_no="___"):
     else:
         context = _build_template_context(row_or_record, kind, ref_no)
 
-    template_obj.file.open('rb')
-    try:
-        doc = DocxTemplate(BytesIO(template_obj.file.read()))   # in-memory copy; the stored template is never touched
-    finally:
-        template_obj.file.close()
+    doc = DocxTemplate(BytesIO(template_bytes(template_obj)))   # in-memory copy; the stored template is never touched
     doc.render(context)
 
     buf = io.BytesIO()
@@ -1132,3 +1124,29 @@ def generate_pdf_for_row(row, ref_no="___", semester=''):
     except Exception as e:
         logger.exception("Failed to generate PDF for row")
         return None, f"เกิดข้อผิดพลาดในการแปลงไฟล์ PDF: {str(e)}"
+
+
+class TemplateFileMissing(Exception):
+    """The template's .docx is no longer on disk (e.g. the server's temporary storage was wiped)."""
+
+
+def template_bytes(t):
+    """Read a template's .docx. If the file vanished (Render wipes /app/media on every deploy),
+    a built-in-made template is rebuilt and re-saved; an uploaded one raises TemplateFileMissing."""
+    from django.core.files.base import ContentFile
+    try:
+        t.file.open('rb')
+        try:
+            return t.file.read()
+        finally:
+            t.file.close()
+    except (FileNotFoundError, ValueError, OSError):
+        base = os.path.basename(t.file.name or t.name or '')
+        kind = base.split('_builtin_')[0] if '_builtin_' in base else ''
+        if kind in BUILTIN_TITLES:
+            data = build_tagged_letter(kind)
+            t.file.save(base, ContentFile(data), save=True)
+            return data
+        raise TemplateFileMissing(
+            f"The file of template '{t.name}' is missing from the server (it was probably lost when the site restarted). "
+            "Please upload this template again.")

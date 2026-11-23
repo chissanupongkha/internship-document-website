@@ -38,6 +38,16 @@
           <div class="text-[10px] font-bold uppercase tracking-wider text-[#3F7A62] mb-2 px-1 flex items-center gap-1">
             <span>★ Core Document Fields</span>
           </div>
+          <div class="bg-[#F3F8F5] border border-[#CFE3D8] rounded-lg p-3 mb-3">
+            <label class="block text-[11px] font-semibold text-gray-600 mb-1">Reference number (ที่)</label>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-600 whitespace-nowrap">{{ ref_prefix }} /</span>
+              <input type="text" name="ref_number" value="{{ ref_no }}" maxlength="20" required
+                     class="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono">
+            </div>
+            <p class="text-[11px] text-gray-500 mt-1.5">A running number, given automatically when the letter is first created (001, 002, …).
+              You can change it; it must not be used by another letter. Press <b>Save &amp; Re-generate</b> to put it on the letter.</p>
+          </div>
           <div class="space-y-2.5">
             {% for label, value in primary_fields %}
             <div class="px-3 py-2 bg-[#FBF9F4] border border-[#E1DACB] rounded-lg flex flex-col gap-1 focus-within:border-[#3F7A62] focus-within:ring-1 focus-within:ring-[#3F7A62]">

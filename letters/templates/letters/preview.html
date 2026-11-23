@@ -34,6 +34,7 @@
                 title="Select/Deselect All Supported Records">
             </th>
             <th class="py-2 px-2">Student</th>
+            <th class="py-2 px-2" title="The running number in the letter's “ที่ {{ ref_prefix }} / …”">Ref. no.</th>
             <th class="py-2 px-2">Company / contact</th>
             <th class="py-2 px-2">Course / period</th>
             <th class="py-2 px-2">Semester</th>
@@ -56,6 +57,14 @@
             <td class="py-2 px-2 min-w-[11rem]">
               <div class="font-semibold text-gray-900 leading-tight" title="{{ r.display_name }}">{{ r.display_name|default:"—" }}</div>
               <div class="font-mono text-[10px] text-gray-500">{{ r.student_id }} · {{ r.year|default:"—" }}</div>
+            </td>
+
+            <td class="py-2 px-2 whitespace-nowrap">
+              <input type="text" maxlength="20"
+                class="ref-input w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#3F7A62]"
+                data-record-id="{{ r.id }}" data-original-value="{{ r.ref_no }}" value="{{ r.ref_no }}"
+                title="Change the running number of this letter" onchange="saveRefNo(this)">
+              <span class="ref-status text-[10px] block max-w-[9rem] whitespace-normal"></span>
             </td>
 
             <td class="py-2 px-2 min-w-[14rem] max-w-[18rem]">
@@ -269,6 +278,47 @@ function saveSemester(input) {
       statusEl.textContent = 'Error';
       statusEl.className = 'semester-status text-[10px] text-[#AD4B3D]';
       setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    });
+}
+
+function saveRefNo(input) {
+  const recordId = input.dataset.recordId;
+  const newValue = input.value.trim();
+  const statusEl = input.nextElementSibling;
+  const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+  const notes = {
+    regenerated: '✓ Saved, Word draft updated',
+    edited: 'Saved. The Word file was edited by hand and still shows the old number.',
+    signed: 'Saved. The signed copy keeps its old number.',
+    failed: 'Saved, but the draft could not be rebuilt.',
+    none: '✓ Saved',
+  };
+  statusEl.textContent = 'Saving...';
+  statusEl.className = 'ref-status text-[10px] block max-w-[9rem] whitespace-normal text-gray-400';
+  fetch(`/record/${recordId}/update-ref-no/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrfToken, 'Content-Type': 'application/x-www-form-urlencoded'},
+    body: `ref_no=${encodeURIComponent(newValue)}`,
+  })
+    .then(res => res.json().then(data => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      if (ok && data.ok) {
+        input.value = data.ref_no;
+        input.dataset.originalValue = data.ref_no;
+        statusEl.textContent = notes[data.draft] || notes.none;
+        statusEl.className = 'ref-status text-[10px] block max-w-[9rem] whitespace-normal ' + (data.draft === 'edited' || data.draft === 'signed' || data.draft === 'failed' ? 'text-[#B7791F]' : 'text-[#3F7A62]');
+        setTimeout(() => { statusEl.textContent = ''; }, data.draft === 'regenerated' || data.draft === 'none' ? 2500 : 7000);
+      } else {
+        input.value = input.dataset.originalValue;
+        statusEl.textContent = data.error || 'Failed';
+        statusEl.className = 'ref-status text-[10px] block max-w-[9rem] whitespace-normal text-[#AD4B3D]';
+        setTimeout(() => { statusEl.textContent = ''; }, 5000);
+      }
+    })
+    .catch(() => {
+      input.value = input.dataset.originalValue;
+      statusEl.textContent = 'Error';
+      statusEl.className = 'ref-status text-[10px] block max-w-[9rem] whitespace-normal text-[#AD4B3D]';
     });
 }
 

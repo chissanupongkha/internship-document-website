@@ -59,6 +59,7 @@ from .docgen import (
     resolve_letter_type,
 )
 from .models import (
+    LetterSettings,
     AuditLog,
     EmailTemplate,
     GeneratedDocument,
@@ -272,7 +273,7 @@ def _match_and_save_pdf(records, filename, file_content):
 
     doc = GeneratedDocument.objects.filter(record=record).last()
     if not doc:
-        ref_no = str(2600 + record.row_index)
+        ref_no = record.get_ref_no()
         doc = GeneratedDocument.objects.create(
             record=record,
             ref_no=ref_no,
@@ -649,6 +650,9 @@ def preview(request, batch_id):
     for t in templates:
         t.mapping_list = list(t.field_mappings.all())
 
+    for r in sorted(records, key=lambda x: (x.row_index, x.id)):
+        r.get_ref_no()                              # every row shows its running number, in file order
+
     fit_data = {}
     counts = {}
     for r in records:
@@ -678,7 +682,52 @@ def preview(request, batch_id):
         'counts': counts,
         'templates': templates,
         'fit_data': fit_data,
+        'ref_prefix': LetterSettings.load().ref_prefix,
     })
+
+
+def _refresh_draft_after_ref_change(record):
+    """Put a changed reference number on the saved Word draft. A draft that was edited by hand
+    (version 2 or later) or already signed is left alone, and the caller is told."""
+    doc = GeneratedDocument.objects.filter(record=record).order_by('-id').first()
+    if not doc:
+        return 'none'
+    doc.ref_no = record.ref_no
+    doc.save(update_fields=['ref_no'])
+    if doc.signed_file:
+        return 'signed'
+    if not _field_ready(doc.file):
+        return 'none'
+    if (doc.version or 1) > 1:
+        return 'edited'
+    buf, fname = generate_for_row(record.data, ref_no=record.ref_no, semester=record.semester)
+    if not buf:
+        return 'failed'
+    old = doc.file
+    doc.file.save(os.path.basename(doc.file_name or fname), ContentFile(buf.getvalue()), save=True)
+    if old and old.name != doc.file.name:
+        old.delete(save=False)
+    return 'regenerated'
+
+
+@staff_required
+@require_POST
+def update_ref_no(request, record_id):
+    record = get_object_or_404(StudentRecord, id=record_id)
+    new_ref = request.POST.get('ref_no', '').strip()
+    if not new_ref:
+        return JsonResponse({'ok': False, 'error': 'The reference number cannot be empty.'}, status=400)
+    if len(new_ref) > 20:
+        return JsonResponse({'ok': False, 'error': 'At most 20 characters.'}, status=400)
+    if StudentRecord.objects.filter(ref_no=new_ref).exclude(pk=record.pk).exists():
+        return JsonResponse({'ok': False, 'error': f'{new_ref} is already used by another letter.'}, status=400)
+    if new_ref != record.ref_no:
+        record.ref_no = new_ref
+        record.save(update_fields=['ref_no'])
+        log_activity(request, 'EDIT_RECORD', f"Reference number of record #{record.id} ({record.display_name}) set to {new_ref}")
+    draft = _refresh_draft_after_ref_change(record)
+    return JsonResponse({'ok': True, 'ref_no': record.ref_no, 'draft': draft})
+
 
 @staff_required
 @require_POST
@@ -718,6 +767,18 @@ def record_detail(request, record_id):
                 return redirect('letters:record_detail', record_id=record.id)
             log_changes(request, record, new_company, new_period, request.POST.get('change_reason', ''))
 
+        new_ref = request.POST.get('ref_number', '').strip()
+        if new_ref and new_ref != record.get_ref_no():
+            if len(new_ref) > 20:
+                messages.error(request, "The reference number is too long (20 characters at most).")
+                return redirect('letters:record_detail', record_id=record.id)
+            if StudentRecord.objects.filter(ref_no=new_ref).exclude(pk=record.pk).exists():
+                messages.error(request, f"Reference number {new_ref} is already used by another letter.")
+                return redirect('letters:record_detail', record_id=record.id)
+            record.ref_no = new_ref
+            record.save(update_fields=['ref_no'])
+            log_activity(request, 'EDIT_RECORD', f"Reference number of record #{record.id} set to {new_ref}")
+
         record.data = updated_data
         record.company = _pick(updated_data, H_COMPANY) or record.company
         record.contractor = _pick(updated_data, H_CONTACT_PERSON) or record.contractor
@@ -727,11 +788,12 @@ def record_detail(request, record_id):
         record.year = _pick(updated_data, H_YEAR) or record.year
         record.save()
 
-        ref_no = document.ref_no if (document and document.ref_no) else str(2600 + record.row_index)
+        ref_no = record.get_ref_no()
         buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if buf:
             if not document:
                 document = GeneratedDocument(record=record, ref_no=ref_no)
+            document.ref_no = ref_no
             document.status = GeneratedDocument.STATUS_GENERATED
             document.file_name = fname_or_reason
             document.file.save(fname_or_reason, ContentFile(buf.getvalue()), save=True)
@@ -740,7 +802,7 @@ def record_detail(request, record_id):
         return redirect('letters:record_detail', record_id=record.id)
 
     if not document or not document.file:
-        ref_no = str(2600 + record.row_index)
+        ref_no = record.get_ref_no()
         buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if buf:
             if not document:
@@ -766,6 +828,8 @@ def record_detail(request, record_id):
         'primary_fields': primary_fields,
         'secondary_fields': secondary_fields,
         'document': document,
+        'ref_no': record.get_ref_no(),
+        'ref_prefix': LetterSettings.load().ref_prefix,
     })
 
 
@@ -874,10 +938,10 @@ def generate(request, batch_id):
                 for record in records:
                     try:
                         tobj, fb = _chosen_template(request, record, templates_by_id)
-                        buf, filename = generate_for_row(record.data, ref_no="___", template_obj=tobj, force_builtin=fb, semester=record.semester)
+                        buf, filename = generate_for_row(record.data, ref_no=record.get_ref_no(), template_obj=tobj, force_builtin=fb, semester=record.semester)
                         if buf:
                             from .extra_views import save_document_version
-                            save_document_version(record, buf.getvalue(), ref_no=str(record.student_id), file_name=filename)
+                            save_document_version(record, buf.getvalue(), ref_no=record.get_ref_no(), file_name=filename)
                             zf.writestr(filename, buf.getvalue())
                             added_count += 1
                         else:
@@ -891,7 +955,7 @@ def generate(request, batch_id):
 
                     for record in records:
                         try:
-                            ref = str(record.student_id or record.id or "___")
+                            ref = record.get_ref_no()
                             tobj, fb = _chosen_template(request, record, templates_by_id)
                             res = generate_for_row(record.data, ref_no=ref, template_obj=tobj, force_builtin=fb, semester=record.semester)
                             if not res or res[0] is None:
@@ -901,7 +965,7 @@ def generate(request, batch_id):
 
                             docx_buf, orig_fname = res
                             from .extra_views import save_document_version
-                            save_document_version(record, docx_buf.getvalue(), ref_no=str(record.student_id),
+                            save_document_version(record, docx_buf.getvalue(), ref_no=record.get_ref_no(),
                                                   file_name=orig_fname)
                             pdf_fname = orig_fname.rsplit(".", 1)[0] + ".pdf"
 
@@ -1033,7 +1097,7 @@ def download_record_pdf(request, record_id):
         response = FileResponse(document.signed_file, content_type='application/pdf')
         filename = os.path.basename(document.signed_file.name)
     else:
-        ref_no = request.GET.get('ref_no', '___')
+        ref_no = record.get_ref_no()
         pdf_buf, filename = generate_pdf_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if not pdf_buf:         # filename holds the reason when nothing could be made
             messages.error(request, f"Could not create the PDF for this record: {filename}")
@@ -1081,7 +1145,7 @@ def preview_record_pdf(request, record_id):
         return response
 
     # 3) nothing saved yet: generate on the fly
-    ref_no = doc.ref_no if (doc and doc.ref_no) else str(2600 + record.row_index)
+    ref_no = record.get_ref_no()
     try:
         pdf_buf, _name = generate_pdf_for_row(record.data, ref_no=ref_no, semester=record.semester)
     except Exception as e:
@@ -1099,7 +1163,7 @@ def download_letter_view(request, record_id, letter_type):
     if letter_type not in ('confirm', 'request', 'extension'):
         raise Http404(f"Unknown letter type: '{letter_type}'")
 
-    ref_no = str(2600 + record.row_index)
+    ref_no = record.get_ref_no()
     buf, fname_or_reason = generate_for_row(record.data, ref_no=ref_no, kind_override=letter_type, semester=record.semester)
     if buf is None:
         raise Http404(fname_or_reason)
@@ -1587,7 +1651,7 @@ def preview_record_docx(request, record_id):
 
     if not doc or not _field_ready(doc.file):
         # no generated Word file saved yet: build it now
-        ref_no = doc.ref_no if (doc and doc.ref_no) else str(2600 + record.row_index)
+        ref_no = record.get_ref_no()
         buf, fname = generate_for_row(record.data, ref_no=ref_no, semester=record.semester)
         if not buf:
             return HttpResponse("No generated document found for this record.", status=404)
@@ -1691,7 +1755,7 @@ def template_preview(request, template_id):
         return redirect('letters:template_mapping', template_id=template_obj.id)
 
     kind = normalize_letter_type(sample_record.letter_type)
-    ref_no = str(2600 + sample_record.row_index)
+    ref_no = sample_record.ref_no or '001'          # a preview must not use up a running number
 
     docx_buf = render_with_template(template_obj, sample_record, kind, ref_no)
     pdf_bytes = convert_docx_bytes_to_pdf(docx_buf.getvalue())

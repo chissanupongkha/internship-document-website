@@ -41,7 +41,7 @@ def save_document_version(record, docx_bytes, ref_no='', file_name=''):
         doc.version = (doc.version or 0) + 1
         doc.status = GeneratedDocument.STATUS_GENERATED
         doc.file_name = name
-        if ref_no and not doc.ref_no:
+        if ref_no:
             doc.ref_no = ref_no
         doc.save()
         if old_file:
@@ -56,10 +56,10 @@ def record_docx_download(request, record_id):
     record = get_object_or_404(StudentRecord, id=record_id)
     doc = GeneratedDocument.objects.filter(record=record).order_by('-id').first()
     if not doc or not _field_ready(doc.file):
-        buf, fname = generate_for_row(record.data, ref_no=str(record.student_id), semester=record.semester)
+        buf, fname = generate_for_row(record.data, ref_no=record.get_ref_no(), semester=record.semester)
         if not buf:
             raise Http404(fname)
-        doc = save_document_version(record, buf.getvalue(), ref_no=str(record.student_id))
+        doc = save_document_version(record, buf.getvalue(), ref_no=record.get_ref_no())
     doc.file.open('rb')
     return FileResponse(doc.file, as_attachment=True,
                         filename=f"{record.student_id}_v{doc.version}.docx", content_type=DOCX_TYPE)
@@ -81,7 +81,7 @@ def record_docx_upload(request, record_id):
     except Exception:
         messages.error(request, "That file is not a valid .docx and was not saved.")
         return back
-    doc = save_document_version(record, data)
+    doc = save_document_version(record, data, ref_no=record.get_ref_no())
     log_activity(request, 'EDIT_DOCUMENT', f"Uploaded edited letter for {record.student_id}, now version {doc.version}")
     messages.success(request, f"Saved as version {doc.version}. The earlier version was replaced.")
     return back
@@ -97,7 +97,7 @@ def record_pages(request, record_id):
             with doc.file.open('rb') as fh:
                 data = fh.read()
         else:
-            buf, _ = generate_for_row(record.data, ref_no=str(record.student_id), semester=record.semester)
+            buf, _ = generate_for_row(record.data, ref_no=record.get_ref_no(), semester=record.semester)
             data = buf.getvalue()
         pdf = convert_docx_bytes_to_pdf(data)
         return JsonResponse({'pages': count_pdf_pages(pdf)})
@@ -128,7 +128,7 @@ def signed_upload_manual(request):
     new_name = f"{record.student_id}_{kind}_signed.pdf"
     doc = GeneratedDocument.objects.filter(record=record).order_by('-id').first()
     if doc is None:
-        doc = GeneratedDocument.objects.create(record=record, ref_no=str(record.student_id),
+        doc = GeneratedDocument.objects.create(record=record, ref_no=record.get_ref_no(),
                                                status=GeneratedDocument.STATUS_GENERATED, file_name=new_name)
     if doc.signed_file:
         doc.signed_file.delete(save=False)           # replace the earlier signed file

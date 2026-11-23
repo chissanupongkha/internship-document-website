@@ -41,6 +41,7 @@ urlpatterns = [
     path('record/<int:record_id>/preview-pdf/', views.preview_record_pdf, name='preview_record_pdf'),
     path('record/<int:record_id>/preview-docx/', views.preview_record_docx, name='preview_record_docx'),
     path('record/<int:record_id>/update-semester/', views.update_semester, name='update_semester'),
+    path('record/<int:record_id>/update-ref-no/', views.update_ref_no, name='update_ref_no'),
 
     # Templates & Management
     path('templates/', views.template_list, name='template_list'),

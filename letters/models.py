@@ -44,12 +44,27 @@ class StudentRecord(models.Model):
     internship_position = models.CharField(max_length=255, blank=True)
     period = models.CharField(max_length=255, blank=True)
     data = models.JSONField(default=dict)
+    ref_no = models.CharField(max_length=20, blank=True, default='')    # the running number in "อว 78.363 / 012"
 
     class Meta:
         ordering = ['-id']
 
     def __str__(self):
         return f"{self.student_id} - {self.display_name} ({self.course_id} {self.semester} #{self.times})"
+
+    def get_ref_no(self):
+        """The letter's reference number. A record that has none yet gets the next running number
+        (001, 002, ...); staff can change it afterwards on the record page."""
+        if self.ref_no:
+            return self.ref_no
+        from django.db import transaction
+        with transaction.atomic():
+            LetterSettings.objects.select_for_update().filter(pk=1).first()      # one allocation at a time
+            used = [int(v) for v in StudentRecord.objects.exclude(ref_no='').values_list('ref_no', flat=True)
+                    if v.isdigit()]
+            self.ref_no = f"{(max(used) + 1 if used else 1):03d}"
+            self.save(update_fields=['ref_no'])
+        return self.ref_no
 
 
 class Logo(models.Model):
@@ -305,7 +320,7 @@ class LetterSettings(models.Model):
         "อีเมล์ siripen.pon@mahidol.ac.th หรือ โทรศัพท์ 083-0610496"))
     dean_name = models.CharField(max_length=150, default="(ดร.พัฒนศักดิ์ มงคลวัฒน์)")
     dean_title = models.CharField(max_length=200, default="คณบดีคณะเทคโนโลยีสารสนเทศและการสื่อสาร")
-    line_spacing = models.DecimalField(max_digits=3, decimal_places=2, default=1.15)
+    line_spacing = models.DecimalField(max_digits=3, decimal_places=2, default=1.0)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

@@ -118,8 +118,8 @@ AVAILABLE_SOURCE_FIELDS = [
     ('address_line1', 'ที่อยู่ บรรทัดที่ 1'),
     ('address_line2', 'ที่อยู่ บรรทัดที่ 2'),
     ('tel', 'เบอร์โทรศัพท์ / โทรสาร'),
-    ('dean_name', 'ชื่อคณบดี'),
-    ('dean_title', 'ตำแหน่งคณบดี'),
+    ('approver_name', 'ชื่อผู้ลงนาม (ผู้อนุมัติ)'),
+    ('approver_title', 'ตำแหน่งผู้ลงนาม'),
     ('instructor_name', 'ชื่ออาจารย์ผู้ดูแลรายวิชา'),
     ('instructor_email', 'อีเมล์อาจารย์ผู้ดูแลรายวิชา'),
     ('instructor_phone', 'โทรศัพท์อาจารย์ผู้ดูแลรายวิชา'),
@@ -222,7 +222,7 @@ def _load_cfg():
         'letter_date': None,
         'dean_name': DEAN_TH,
         'dean_title': DEAN_TITLE_TH,
-        'line_spacing': 1.15,
+        'line_spacing': 1.0,
     }
     try:
         from .models import LetterSettings
@@ -490,8 +490,8 @@ def _base_doc():
     section = doc.sections[0]
     section.page_height = Cm(29.7)
     section.page_width = Cm(21.0)
-    section.top_margin = Cm(1.2)
-    section.bottom_margin = Cm(1.2)
+    section.top_margin = Cm(1.0)
+    section.bottom_margin = Cm(1.0)
     section.left_margin = Cm(2.5)
     section.right_margin = Cm(2.0)
     
@@ -516,7 +516,7 @@ def _letterhead(doc, faculty_name):
         p_logo.paragraph_format.space_after = Pt(0)
         p_logo.paragraph_format.line_spacing = 1.0
         run_logo = p_logo.add_run()
-        run_logo.add_picture(LOGO_PATH, width=Cm(2.2))
+        run_logo.add_picture(LOGO_PATH, width=Cm(2.0))
 
     _para(doc, faculty_name, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=0, line_spacing=1.15)
     _para(doc, UNIV_TH, align=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, size=14, space_before=0, space_after=0, line_spacing=1.15)
@@ -570,11 +570,14 @@ def _student_table(doc, rows):
             r = p.add_run(v)
             _set_font(r, size=14)
             
-    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+    spacer = doc.add_paragraph()                       # small gap after the table (an empty 14 pt line wasted a whole line)
+    spacer.paragraph_format.space_before = Pt(0)
+    spacer.paragraph_format.space_after = Pt(0)
+    spacer.paragraph_format.line_spacing = Pt(6)
 
 
 def _signature_block(doc):
-    _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=4, space_after=40)
+    _para(doc, "ขอแสดงความนับถือ", align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_before=2, space_after=46)
     cfg = _cfg()
     _para(doc, cfg['dean_name'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
     _para(doc, cfg['dean_title'], align=WD_ALIGN_PARAGRAPH.CENTER, size=14, space_after=0, line_spacing=1.15)
@@ -771,6 +774,16 @@ def build_tagged_letter(kind):
             para.runs[0].text = 'วันที่ {{ date_th }}'
             for r in para.runs[1:]:
                 r.text = ''
+    cfg = _cfg()
+    for para in doc.paragraphs:                     # the person who signs
+        if para.runs and para.text == cfg['dean_name']:
+            para.runs[0].text = '{{ approver_name }}'
+            for r in para.runs[1:]:
+                r.text = ''
+        elif para.runs and para.text == cfg['dean_title']:
+            para.runs[0].text = '{{ approver_title }}'
+            for r in para.runs[1:]:
+                r.text = ''
     apply_thai_font_fix(doc, font_name=THAI_FONT)
     buf = io.BytesIO()
     doc.save(buf)
@@ -802,7 +815,9 @@ def _build_template_context(row_or_record, kind, ref_no="___"):
         'address_line1': ADDRESS_LINE1_TH,
         'address_line2': ADDRESS_LINE2_TH,
         'tel': TEL_TH,
-        'dean_name': cfg['dean_name'],
+        'approver_name': cfg['dean_name'],
+        'approver_title': cfg['dean_title'],
+        'dean_name': cfg['dean_name'],              # old tag names, still filled so existing templates keep working
         'dean_title': cfg['dean_title'],
         'instructor_name': _contact_parts(r_dict)[0],
         'instructor_email': _contact_parts(r_dict)[1],

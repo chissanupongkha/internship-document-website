@@ -26,7 +26,8 @@ from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
-from .decorators import get_role, staff_required
+from .decorators import admin_required, get_role, staff_required
+from datetime import datetime
 from .docgen import (
     bake_logo_into_template,
     pick_template,
@@ -1511,6 +1512,40 @@ def template_create(request):
     log_activity(request, 'UPLOAD_TEMPLATE', f"Created letter type '{name}' from the system letter")
     messages.success(request, f"Letter type '{name}' created from the system's letter. Change the wording below, then save, preview and activate.")
     return redirect('letters:template_editor', template_id=t.id)
+
+
+@admin_required
+def letter_settings(request):
+    """Who signs the letters and the few numbers every built-in letter shares."""
+    from decimal import Decimal, InvalidOperation
+    from .models import LetterSettings
+    obj = LetterSettings.load()
+    if request.method == 'POST':
+        name = request.POST.get('approver_name', '').strip()
+        title = request.POST.get('approver_title', '').strip()
+        prefix = request.POST.get('ref_prefix', '').strip()
+        if not name or not title or not prefix:
+            messages.error(request, "Approver name, approver title and reference prefix cannot be empty.")
+            return redirect('letters:letter_settings')
+        try:
+            spacing = Decimal(request.POST.get('line_spacing', '1.0') or '1.0')
+            if not Decimal('0.8') <= spacing <= Decimal('2.0'):
+                raise InvalidOperation
+        except InvalidOperation:
+            messages.error(request, "Line spacing must be a number between 0.8 and 2.0.")
+            return redirect('letters:letter_settings')
+        fixed = request.POST.get('letter_date', '').strip()
+        try:
+            letter_date = datetime.strptime(fixed, '%Y-%m-%d').date() if fixed else None
+        except ValueError:
+            messages.error(request, "The fixed letter date is not a valid date.")
+            return redirect('letters:letter_settings')
+        obj.dean_name, obj.dean_title, obj.ref_prefix = name, title, prefix
+        obj.line_spacing, obj.letter_date = spacing, letter_date
+        obj.save()
+        messages.success(request, "Letter settings saved. New letters use them straight away.")
+        return redirect('letters:letter_settings')
+    return render(request, 'letters/letter_settings.html', {'s': obj})
 
 
 @staff_required

@@ -249,8 +249,8 @@ def template_starter(request):
     _set_font(doc.add_paragraph().add_run(
         "ด้วย {{ student_name }} รหัสนักศึกษา {{ student_id }} ชั้นปีที่ {{ year_level }} "
         "ขอเข้าฝึกงานในช่วง {{ period }} รายวิชา {{ course }}"))
-    _set_font(doc.add_paragraph().add_run("{{ dean_name }}"))
-    _set_font(doc.add_paragraph().add_run("{{ dean_title }}"))
+    _set_font(doc.add_paragraph().add_run("{{ approver_name }}"))
+    _set_font(doc.add_paragraph().add_run("{{ approver_title }}"))
     doc.add_page_break()
     _set_font(doc.add_paragraph().add_run("Tags you can use (delete this page):"), bold=True)
     for tag, label in AVAILABLE_SOURCE_FIELDS:

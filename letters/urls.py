@@ -57,6 +57,7 @@ urlpatterns = [
 
     # Letter Types & Raw Value Mappings
     path('letter-types/', views.lettertype_list, name='lettertype_list'),
+    path('letter-settings/', views.letter_settings, name='letter_settings'),
     path('letter-types/create/', views.lettertype_create, name='lettertype_create'),
     path('letter-types/<int:type_id>/delete/', views.lettertype_delete, name='lettertype_delete'),
     path('letter-types/mapping/', views.mapping_create, name='mapping_create'),

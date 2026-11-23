@@ -58,6 +58,7 @@
       <a href="{% url 'letters:template_list' %}" class="mi {% if '/templates' in p %}on{% endif %}" title="Document templates"><span class="ic" hidden>D</span><span class="lb">Document templates</span></a>
       <a href="{% url 'letters:email_templates' %}" class="mi {% if '/email-templates' in p %}on{% endif %}" title="Email templates"><span class="ic" hidden>E</span><span class="lb">Email templates</span></a>
       <a href="{% url 'letters:lettertype_list' %}" class="mi {% if 'letter-types' in p or '/mappings' in p %}on{% endif %}" title="Letter type mapping"><span class="ic" hidden>L</span><span class="lb">Letter type mapping</span></a>
+      <a href="{% url 'letters:letter_settings' %}" class="mi {% if '/letter-settings' in p %}on{% endif %}" title="Letter settings"><span class="ic" hidden>S</span><span class="lb">Letter settings</span></a>
       <div class="grp">Administration</div>
       <a href="{% url 'letters:user_list' %}" class="mi {% if '/accounts' in p %}on{% endif %}" title="Accounts"><span class="ic" hidden>A</span><span class="lb">Accounts</span></a>
       <a href="{% url 'letters:audit_logs' %}" class="mi {% if 'audit' in p %}on{% endif %}" title="Activity log"><span class="ic" hidden>A</span><span class="lb">Activity log</span></a>

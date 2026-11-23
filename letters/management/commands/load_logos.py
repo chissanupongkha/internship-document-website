@@ -32,10 +32,12 @@ class Command(BaseCommand):
                 if f.lower().endswith(('.png', '.jpg', '.jpeg')):
                     files.append((os.path.join(LIBRARY, f), _name_for(f)))
         for path, name in files:
-            if Logo.objects.filter(name=name).exists():
+            logo = Logo.objects.filter(name=name).first()
+            if logo and logo.image and logo.image.storage.exists(logo.image.name):
                 continue
+            # new logo, or its picture was lost (the host wipes uploaded files on every deploy): (re)save it
             with open(path, 'rb') as fh:
-                logo = Logo(name=name)
+                logo = logo or Logo(name=name)
                 logo.image.save(os.path.basename(path), File(fh), save=True)
             added += 1
         self.stdout.write(self.style.SUCCESS(f"{added} logo(s) added, {len(files) - added} already there."))

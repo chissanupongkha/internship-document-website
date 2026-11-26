@@ -1,3 +1,4 @@
+
 """
 URL configuration for internship_project project.
 

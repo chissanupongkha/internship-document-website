@@ -90,6 +90,7 @@ urlpatterns = [
     path('request/<int:record_id>/status/', status_views.document_status, name='document_status'),
     path('request/<int:record_id>/change/', status_views.record_change, name='record_change'),
     path('subjects/', status_views.subject_list, name='subject_list'),
+    path('subjects/import/', status_views.subject_import, name='subject_import'),
     path('subjects/save/', status_views.subject_save, name='subject_save'),
     path('subjects/<int:pk>/delete/', status_views.subject_delete, name='subject_delete'),
     path('students/', status_views.student_list, name='student_list'),
